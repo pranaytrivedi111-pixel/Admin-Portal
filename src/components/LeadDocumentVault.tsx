@@ -7,12 +7,14 @@ import {
 } from 'lucide-react';
 import { Lead, LeadDocument } from '../types';
 import { saveDocToLocalDB, getDocFromLocalDB, deleteDocFromLocalDB } from '../utils/documentStorage';
+import { maskEmail, maskPhone } from '../utils/masking';
 
 interface LeadDocumentVaultProps {
   lead: Lead;
   onUpdateLeadDocuments: (leadId: string, documents: LeadDocument[]) => Promise<void> | void;
   isOpenModal?: boolean;
   onCloseModal?: () => void;
+  userRole?: 'admin' | 'counselor' | null;
 }
 
 const DOCUMENT_CATEGORIES: NonNullable<LeadDocument['category']>[] = [
@@ -30,7 +32,8 @@ export default function LeadDocumentVault({
   lead,
   onUpdateLeadDocuments,
   isOpenModal = false,
-  onCloseModal
+  onCloseModal,
+  userRole = 'admin'
 }: LeadDocumentVaultProps) {
   const [selectedCategory, setSelectedCategory] = useState<NonNullable<LeadDocument['category']>>('General');
   const [isUploading, setIsUploading] = useState(false);
@@ -781,7 +784,7 @@ export default function LeadDocumentVault({
                   Student Document Vault: {lead.name}
                 </h3>
                 <p className="text-[11px] text-slate-400 font-semibold">
-                  {lead.phone} • {lead.email} {lead.counsellor ? `• Assigned: ${lead.counsellor}` : ''}
+                  {userRole === 'counselor' ? maskPhone(lead.phone) : lead.phone} • {userRole === 'counselor' ? maskEmail(lead.email) : lead.email} {lead.counsellor ? `• Assigned: ${lead.counsellor}` : ''}
                 </p>
               </div>
             </div>

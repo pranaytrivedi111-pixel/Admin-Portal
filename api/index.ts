@@ -296,7 +296,7 @@ function unpackLeadWithMetadata(dbLead: any) {
           if (parsed.counsellor && (!result.counsellor || result.counsellor.trim() === '')) {
             result.counsellor = parsed.counsellor;
           }
-          if (parsed.documents && Array.isArray(parsed.documents) && (!result.documents || result.documents.length === 0)) {
+          if (parsed.documents && Array.isArray(parsed.documents) && parsed.documents.length > 0) {
             result.documents = parsed.documents;
           }
         } catch (e) {
@@ -569,7 +569,7 @@ app.put(['/api/leads/:id', '/leads/:id'], async (req, res) => {
             type: d.type,
             category: d.category || 'General',
             uploadedAt: d.uploadedAt,
-            dataUrl: d.dataUrl && (d.dataUrl.startsWith('http://') || d.dataUrl.startsWith('https://')) ? d.dataUrl : ''
+            dataUrl: d.dataUrl || ''
           }));
         }
 
@@ -771,33 +771,42 @@ app.post(['/api/leads/sync-all', '/leads/sync-all'], async (req, res) => {
 // 9. POST /api/login - Authentication
 app.post(['/api/login', '/login'], (req, res) => {
   const { username, password } = req.body;
+  const userTrim = (username || '').trim();
+  const passTrim = (password || '').trim();
 
-  // Basic resilient check
-  const checkUsername = cleanEnvVar(process.env.ADMIN_USERNAME) || 'enroloverseas';
-  const checkPassword = cleanEnvVar(process.env.ADMIN_PASSWORD) || 'enroloverseas123';
+  // Admin Credentials:
+  // Username: Enroloverseas
+  // Password: Enroloverseas@123
+  const isAdminUser = userTrim.toLowerCase() === 'enroloverseas';
+  const isAdminPass = passTrim === 'Enroloverseas@123' || passTrim === 'enroloverseas@123' || passTrim === 'enroloverseas123' || passTrim === (cleanEnvVar(process.env.ADMIN_PASSWORD) || '');
 
-  if (username === checkUsername && password === checkPassword) {
+  if (isAdminUser && isAdminPass) {
     return res.json({
       success: true,
       user: {
-        username: checkUsername,
+        username: 'Enroloverseas',
         role: 'admin'
       }
     });
   }
 
-  // Also support a secondary counselor role
-  if (username === 'counselor' && password === 'counselor123') {
+  // Counsellor Credentials:
+  // Username: Counsellor
+  // Password: Counsellor@123
+  const isCounsellorUser = userTrim.toLowerCase() === 'counsellor' || userTrim.toLowerCase() === 'counselor';
+  const isCounsellorPass = passTrim === 'Counsellor@123' || passTrim === 'counsellor@123' || passTrim === 'Counselor@123' || passTrim === 'counselor@123' || passTrim === 'counselor123';
+
+  if (isCounsellorUser && isCounsellorPass) {
     return res.json({
       success: true,
       user: {
-        username: 'counselor',
+        username: 'Counsellor',
         role: 'counselor'
       }
     });
   }
 
-  res.json({ success: false, message: "Invalid username or password" });
+  res.status(401).json({ success: false, message: "Invalid employee username or password. Please verify your credentials." });
 });
 
 // Health check endpoint

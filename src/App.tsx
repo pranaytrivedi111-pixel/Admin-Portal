@@ -75,10 +75,24 @@ export default function App() {
             const prev = prevLeads.find(p => p.id === incoming.id);
             const prevDocs = prev?.documents || [];
             const incDocs = incoming.documents || [];
-            const mergedDocs = incDocs.length > 0 ? incDocs : prevDocs;
+            
+            // Seamlessly preserve local hydrated document dataUrls
+            let finalDocs: LeadDocument[] = [];
+            if (incDocs.length > 0) {
+              finalDocs = incDocs.map(incDoc => {
+                const existing = prevDocs.find(p => p.id === incDoc.id);
+                return {
+                  ...incDoc,
+                  dataUrl: incDoc.dataUrl || existing?.dataUrl || ''
+                };
+              });
+            } else {
+              finalDocs = prevDocs;
+            }
+
             return {
               ...incoming,
-              documents: mergedDocs
+              documents: finalDocs
             };
           });
         });
@@ -137,8 +151,11 @@ export default function App() {
     setLoginError('');
     setIsAuthenticating(true);
 
-    if (!adminUsername.trim() || !adminPassword.trim()) {
-      setLoginError('Please enter both employee username and access password.');
+    const userTrim = adminUsername.trim();
+    const passTrim = adminPassword.trim();
+
+    if (!userTrim || !passTrim) {
+      setLoginError('Please enter both username and access password.');
       setIsAuthenticating(false);
       return;
     }
@@ -147,7 +164,7 @@ export default function App() {
       const response = await fetch(getApiUrl('/api/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: adminUsername, password: adminPassword })
+        body: JSON.stringify({ username: userTrim, password: passTrim })
       });
 
       if (response.ok) {
@@ -163,44 +180,49 @@ export default function App() {
           setLoginError(data.message || 'Authentication failed. Invalid username or password.');
         }
       } else {
-        // Safe offline validation fallback if server is down/unreachable, but ONLY with correct credentials
-        if (adminUsername === 'enroloverseas' && adminPassword === 'enroloverseas123') {
+        // Safe offline validation fallback if server is down/unreachable
+        const isAdmin = userTrim.toLowerCase() === 'enroloverseas' && (passTrim === 'Enroloverseas@123' || passTrim === 'enroloverseas@123' || passTrim === 'enroloverseas123');
+        const isCounsellor = (userTrim.toLowerCase() === 'counsellor' || userTrim.toLowerCase() === 'counselor') && (passTrim === 'Counsellor@123' || passTrim === 'counsellor@123' || passTrim === 'Counselor@123' || passTrim === 'counselor@123' || passTrim === 'counselor123');
+
+        if (isAdmin) {
           setUserRole('admin');
-          setUserName('enroloverseas');
+          setUserName('Enroloverseas');
           setIsAdminLoggedIn(true);
-          sessionStorage.setItem('crm_admin_user', 'enroloverseas');
+          sessionStorage.setItem('crm_admin_user', 'Enroloverseas');
           sessionStorage.setItem('crm_admin_role', 'admin');
-          showToast('Welcome back, enroloverseas! (Offline mode active)');
-        } else if (adminUsername === 'counselor' && adminPassword === 'counselor123') {
+          showToast('Welcome back, Admin (Enroloverseas)!');
+        } else if (isCounsellor) {
           setUserRole('counselor');
-          setUserName('counselor');
+          setUserName('Counsellor');
           setIsAdminLoggedIn(true);
-          sessionStorage.setItem('crm_admin_user', 'counselor');
+          sessionStorage.setItem('crm_admin_user', 'Counsellor');
           sessionStorage.setItem('crm_admin_role', 'counselor');
-          showToast('Welcome back, counselor! (Offline mode active)');
+          showToast('Welcome back, Counsellor!');
         } else {
-          setLoginError('Invalid username or password.');
+          setLoginError('Invalid credentials. Check username or password.');
         }
       }
     } catch (err) {
       console.warn('Authentication API error. Doing safe offline credential validation:', err);
-      // Safe offline validation fallback
-      if (adminUsername === 'enroloverseas' && adminPassword === 'enroloverseas123') {
+      const isAdmin = userTrim.toLowerCase() === 'enroloverseas' && (passTrim === 'Enroloverseas@123' || passTrim === 'enroloverseas@123' || passTrim === 'enroloverseas123');
+      const isCounsellor = (userTrim.toLowerCase() === 'counsellor' || userTrim.toLowerCase() === 'counselor') && (passTrim === 'Counsellor@123' || passTrim === 'counsellor@123' || passTrim === 'Counselor@123' || passTrim === 'counselor@123' || passTrim === 'counselor123');
+
+      if (isAdmin) {
         setUserRole('admin');
-        setUserName('enroloverseas');
+        setUserName('Enroloverseas');
         setIsAdminLoggedIn(true);
-        sessionStorage.setItem('crm_admin_user', 'enroloverseas');
+        sessionStorage.setItem('crm_admin_user', 'Enroloverseas');
         sessionStorage.setItem('crm_admin_role', 'admin');
-        showToast('Welcome back, enroloverseas! (Offline fallback active)');
-      } else if (adminUsername === 'counselor' && adminPassword === 'counselor123') {
+        showToast('Welcome back, Admin (Enroloverseas)!');
+      } else if (isCounsellor) {
         setUserRole('counselor');
-        setUserName('counselor');
+        setUserName('Counsellor');
         setIsAdminLoggedIn(true);
-        sessionStorage.setItem('crm_admin_user', 'counselor');
+        sessionStorage.setItem('crm_admin_user', 'Counsellor');
         sessionStorage.setItem('crm_admin_role', 'counselor');
-        showToast('Welcome back, counselor! (Offline fallback active)');
+        showToast('Welcome back, Counsellor!');
       } else {
-        setLoginError('Invalid username or password.');
+        setLoginError('Invalid credentials. Check username or password.');
       }
     } finally {
       setIsAuthenticating(false);
@@ -387,11 +409,29 @@ export default function App() {
         </div>
 
         {isAdminLoggedIn && (
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex flex-col items-end">
-              <span className="text-xs font-bold text-slate-700 capitalize">{userName}</span>
-              <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mt-0.5">{userRole} account</span>
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col items-end">
+              <span className="text-xs font-black text-slate-800 flex items-center gap-1.5 capitalize">
+                <span className={`w-2 h-2 rounded-full ${userRole === 'admin' ? 'bg-indigo-500' : 'bg-emerald-500'}`} />
+                {userName}
+              </span>
+              <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded border ${
+                userRole === 'admin' 
+                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}>
+                {userRole === 'admin' ? 'Admin (Full Access)' : 'Counsellor (Masked View)'}
+              </span>
             </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-red-600 hover:bg-red-50 border border-slate-200 transition-all cursor-pointer shadow-2xs"
+              title="Sign out of CRM session"
+              id="header-logout-btn"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Logout</span>
+            </button>
           </div>
         )}
       </header>

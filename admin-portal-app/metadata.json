@@ -1,6 +1,0 @@
-{
-  "name": "Enrol Overseas - CRM Admin Portal",
-  "description": "CRM Admin Portal for managing student leads, applications, and communications.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

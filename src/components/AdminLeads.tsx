@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Lead, LeadDocument } from '../types';
 import LeadDocumentVault from './LeadDocumentVault';
+import { maskEmail, maskPhone } from '../utils/masking';
 
 export interface DispositionConfig {
   category: 'Dead' | 'Cold' | 'Warm' | 'Hot';
@@ -820,7 +821,7 @@ export default function AdminLeads({
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500 mb-3">
-                  Direct WhatsApp messaging configured for student phone <strong>{lead.phone}</strong>.
+                  Direct WhatsApp messaging configured for student phone <strong>{userRole === 'counselor' ? maskPhone(lead.phone) : lead.phone}</strong>.
                 </p>
                 <a
                   href={`https://wa.me/${lead.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${lead.name}! This is Enrol Overseas. We are following up regarding your university admission profile.`)}`}
@@ -842,6 +843,7 @@ export default function AdminLeads({
             <LeadDocumentVault
               lead={lead}
               onUpdateLeadDocuments={(leadId, docs) => handleUpdateDocumentsForLead(leadId, docs)}
+              userRole={userRole}
             />
           </div>
         )}
@@ -885,7 +887,7 @@ export default function AdminLeads({
 
             <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 pt-1">
               <p className="text-[10px] text-slate-400 font-semibold">
-                * Browser will trigger wa.me protocol cleanly to {lead.phone}.
+                * Browser will trigger wa.me protocol cleanly to {userRole === 'counselor' ? maskPhone(lead.phone) : lead.phone}.
               </p>
               
               <a
@@ -949,8 +951,8 @@ export default function AdminLeads({
                 Clear All Leads
               </button>
             ) : (
-              <div className="text-xs text-slate-400 bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl font-medium shrink-0">
-                🔒 Standard Counselor Access
+              <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl font-bold shrink-0 flex items-center gap-1.5 shadow-2xs">
+                <span>🔒 Counsellor View (Deletion Disabled • Contact Masked)</span>
               </div>
             )}
           </div>
@@ -1206,11 +1208,11 @@ export default function AdminLeads({
                             </div>
                             <span className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mt-1" id={`lead-row-phone-${lead.id}`}>
                               <Phone className="w-3.5 h-3.5 text-slate-400" />
-                              {lead.phone}
+                              {userRole === 'counselor' ? maskPhone(lead.phone) : lead.phone}
                             </span>
                             <span className="flex items-center gap-1 text-[11px] text-slate-400 mt-0.5" id={`lead-row-email-${lead.id}`}>
                               <Mail className="w-3.5 h-3.5 text-slate-300" />
-                              {lead.email}
+                              {userRole === 'counselor' ? maskEmail(lead.email) : lead.email}
                             </span>
                             
                             {/* Disposition Pill */}
@@ -1434,11 +1436,11 @@ export default function AdminLeads({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 bg-slate-50/60 p-3 rounded-xl border border-slate-100">
                       <span className="flex items-center gap-1.5 font-bold text-slate-700">
                         <Phone className="w-3.5 h-3.5 text-slate-400" />
-                        {lead.phone}
+                        {userRole === 'counselor' ? maskPhone(lead.phone) : lead.phone}
                       </span>
                       <span className="flex items-center gap-1.5 text-slate-500 truncate">
                         <Mail className="w-3.5 h-3.5 text-slate-400" />
-                        {lead.email}
+                        {userRole === 'counselor' ? maskEmail(lead.email) : lead.email}
                       </span>
                     </div>
 
@@ -1622,6 +1624,7 @@ export default function AdminLeads({
             onUpdateLeadDocuments={(leadId, docs) => handleUpdateDocumentsForLead(leadId, docs)}
             isOpenModal={true}
             onCloseModal={() => setActiveDocModalLead(null)}
+            userRole={userRole}
           />
         )}
 
