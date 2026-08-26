@@ -1736,6 +1736,14 @@ export default function AdminLeads({
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={() => setIsManageSourcesOpen(true)}
+                className="text-[10px] font-bold text-sky-600 hover:text-sky-800 hover:bg-sky-50 px-1.5 py-0.5 rounded transition-colors"
+                title="Manage Sources Roster"
+              >
+                Manage
+              </button>
             </div>
 
             {/* Filter by Course / Stream */}
@@ -1838,10 +1846,11 @@ export default function AdminLeads({
                   <tr>
                     <th className="p-4">Student Details</th>
                     <th className="p-4">Assigned Counselor</th>
+                    <th className="p-4">Lead Source</th>
                     <th className="p-4">Academic & Budget</th>
                     <th className="p-4">Documents</th>
-                    <th className="p-4">Timestamp & Source</th>
-                    <th className="p-4">Disposition & Actions</th>
+                    <th className="p-4">Created Date</th>
+                    <th className="p-4">CRM & Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-600" id="leads-table-body">
@@ -1911,6 +1920,40 @@ export default function AdminLeads({
                             </div>
                           </td>
 
+                          {/* Lead Source Cell (IN FRONT) */}
+                          <td className="p-4" id={`lead-cell-source-${lead.id}`}>
+                            <div className="flex flex-col gap-1.5 min-w-[145px]">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black border shadow-2xs ${getSourceBadgeStyle(lead.source)}`}>
+                                <Globe className="w-3.5 h-3.5 shrink-0 opacity-80" />
+                                <span className="truncate">{lead.source || 'Website'}</span>
+                              </span>
+
+                              {/* Inline fast live source select in front */}
+                              <select
+                                value={lead.source || 'Website'}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === '__custom__') {
+                                    const custom = window.prompt('Enter new custom acquisition source name:');
+                                    if (custom && custom.trim()) {
+                                      handleLiveUpdateSource(lead.id, custom.trim());
+                                    }
+                                  } else {
+                                    handleLiveUpdateSource(lead.id, val);
+                                  }
+                                }}
+                                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-[10px] text-slate-700 font-bold outline-none cursor-pointer hover:border-sky-300 transition-colors shadow-2xs"
+                                title="Quick change acquisition source in front"
+                                id={`lead-source-select-${lead.id}`}
+                              >
+                                {sourcesList.map((s) => (
+                                  <option key={s} value={s}>{s}</option>
+                                ))}
+                                <option value="__custom__">+ Custom Source...</option>
+                              </select>
+                            </div>
+                          </td>
+
                           {/* Academic Score & Budget */}
                           <td className="p-4" id={`lead-cell-academic-${lead.id}`}>
                             {lead.academicLevel && (
@@ -1962,22 +2005,14 @@ export default function AdminLeads({
                             </div>
                           </td>
 
-                          {/* Timestamp & Source */}
+                          {/* Timestamp */}
                           <td className="p-4 text-[11px] text-slate-400" id={`lead-cell-time-${lead.id}`}>
-                            <span className="flex items-center gap-1" id={`lead-row-time-${lead.id}`}>
-                              <Calendar className="w-3.5 h-3.5 text-slate-300" />
+                            <span className="flex items-center gap-1 font-semibold text-slate-600" id={`lead-row-time-${lead.id}`}>
+                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
                               {new Date(lead.timestamp).toLocaleDateString()}
                             </span>
-                            <span className="block mt-0.5" id={`lead-row-time-hour-${lead.id}`}>
+                            <span className="block text-[10px] text-slate-400 mt-0.5" id={`lead-row-time-hour-${lead.id}`}>
                               {new Date(lead.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded font-bold text-[9px] uppercase mt-1 ${
-                              lead.source === 'eligibility_calculator' ? 'bg-teal-50 text-teal-700' :
-                              lead.source === 'ai_chat' ? 'bg-orange-50 text-orange-700' :
-                              lead.source === 'direct_apply' ? 'bg-amber-50 text-amber-700' :
-                              'bg-slate-50 text-slate-600'
-                            }`} id={`lead-row-source-${lead.id}`}>
-                              {lead.source.replace('_', ' ')}
                             </span>
                           </td>
 
@@ -2023,7 +2058,7 @@ export default function AdminLeads({
                         {/* Collapsible CRM Workspace Drawer */}
                         {isExpanded && (
                           <tr key={`expanded-row-${lead.id}`} className="bg-slate-50/50">
-                            <td colSpan={6} className="p-4 sm:p-6 border-b border-slate-200/80 bg-slate-50/60" id={`expanded-panel-${lead.id}`}>
+                            <td colSpan={7} className="p-4 sm:p-6 border-b border-slate-200/80 bg-slate-50/60" id={`expanded-panel-${lead.id}`}>
                               {renderCrmOutreachDrawer(lead)}
                             </td>
                           </tr>
@@ -2096,28 +2131,64 @@ export default function AdminLeads({
                       </span>
                     </div>
 
-                    {/* Documents & Counselor fast action bar */}
-                    <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-slate-100">
-                      <button
-                        type="button"
-                        onClick={() => setActiveDocModalLead(lead)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 transition-all cursor-pointer"
-                      >
-                        <FolderOpen className="w-3.5 h-3.5 text-teal-600" />
-                        <span>Documents ({docsCount})</span>
-                      </button>
+                    {/* Documents, Counselor & Source Fast Action Grid in Mobile Front */}
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Counselor Quick Selector for mobile */}
+                        <div>
+                          <label className="text-[9px] font-black uppercase text-slate-400 block mb-0.5">Counselor:</label>
+                          <select
+                            value={lead.counsellor || ''}
+                            onChange={(e) => handleLiveAssignCounsellor(lead.id, e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-2 py-1.5 text-[10px] text-slate-700 font-bold outline-none shadow-2xs truncate"
+                          >
+                            <option value="">Unassigned...</option>
+                            {counsellorsList.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </div>
 
-                      {/* Counselor Quick Selector for mobile */}
-                      <select
-                        value={lead.counsellor || ''}
-                        onChange={(e) => handleLiveAssignCounsellor(lead.id, e.target.value)}
-                        className="bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-[11px] text-slate-700 font-bold outline-none shadow-2xs"
-                      >
-                        <option value="">Counselor...</option>
-                        {counsellorsList.map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
+                        {/* Source Quick Selector for mobile (IN FRONT) */}
+                        <div>
+                          <label className="text-[9px] font-black uppercase text-slate-400 block mb-0.5">Source:</label>
+                          <select
+                            value={lead.source || 'Website'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === '__custom__') {
+                                const custom = window.prompt('Enter new custom acquisition source:');
+                                if (custom && custom.trim()) {
+                                  handleLiveUpdateSource(lead.id, custom.trim());
+                                }
+                              } else {
+                                handleLiveUpdateSource(lead.id, val);
+                              }
+                            }}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-2 py-1.5 text-[10px] text-slate-700 font-bold outline-none shadow-2xs truncate"
+                          >
+                            {sourcesList.map((s) => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                            <option value="__custom__">+ Custom...</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setActiveDocModalLead(lead)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-800 transition-all cursor-pointer"
+                        >
+                          <FolderOpen className="w-3.5 h-3.5 text-teal-600" />
+                          <span>Documents ({docsCount})</span>
+                        </button>
+                        
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black border ${getSourceBadgeStyle(lead.source)}`}>
+                          <Globe className="w-3 h-3" /> {lead.source || 'Website'}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Card Actions */}
