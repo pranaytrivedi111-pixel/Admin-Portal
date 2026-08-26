@@ -171,15 +171,15 @@ const SEED_LEADS = [
     email: "aarav.mehta@gmail.com",
     phone: "+91 98765 43210",
     academicLevel: "Undergraduate",
-    streamOfInterest: "Computer Applications",
-    degreeOfInterest: "BCA",
+    streamOfInterest: "Computer Science & IT",
+    degreeOfInterest: "BCA / BS CS",
     score: "92%",
     budget: "₹2.5 Lakhs/year",
     locationPreference: "Bangalore",
-    source: "direct_apply",
+    source: "Website",
     timestamp: new Date(Date.now() - 4 * 3600000).toISOString(),
     status: "New",
-    notes: "Aarav is highly interested in BCA in Bangalore. Excellent high school grades.",
+    notes: "Aarav is highly interested in BCA / Computer Science. Excellent high school grades.",
     priority: 3
   },
   {
@@ -187,13 +187,13 @@ const SEED_LEADS = [
     name: "Ananya Iyer",
     email: "ananya.iyer@yahoo.com",
     phone: "+91 87654 32109",
-    academicLevel: "Postgraduate",
-    streamOfInterest: "Management",
+    academicLevel: "Postgraduate (Masters)",
+    streamOfInterest: "MBA / Management & Leadership",
     degreeOfInterest: "MBA",
     score: "78%",
     budget: "₹4.5 Lakhs/year",
     locationPreference: "Mumbai",
-    source: "eligibility_calculator",
+    source: "Google Ads",
     timestamp: new Date(Date.now() - 24 * 3600000).toISOString(),
     status: "In Progress",
     notes: "Requires assistance with education loan. Wants top business schools in Mumbai.",
@@ -207,15 +207,15 @@ const SEED_LEADS = [
     email: "rohan.sharma99@gmail.com",
     phone: "+91 76543 21098",
     academicLevel: "Undergraduate",
-    streamOfInterest: "Engineering",
-    degreeOfInterest: "B.Tech CSE",
+    streamOfInterest: "Data Science & AI",
+    degreeOfInterest: "B.Tech Data Science",
     score: "88%",
     budget: "₹3.0 Lakhs/year",
     locationPreference: "Pune",
-    source: "ai_chat",
+    source: "Walk-in",
     timestamp: new Date(Date.now() - 48 * 3600000).toISOString(),
     status: "Contacted",
-    notes: "Enquired via AI Chat about scholarships. Follow up scheduled.",
+    notes: "Walk-in student enquired about AI & Data Science scholarships. Follow up scheduled.",
     priority: 1,
     disposition: "Follow up",
     subDisposition: "Interested",
@@ -265,6 +265,116 @@ function mapLeadToSupabase(lead: any) {
   return result;
 }
 
+// Persistent file storage directory for uploaded documents
+const UPLOADS_DIR = process.env.VERCEL ? path.resolve('/tmp', 'enrol_uploads') : path.resolve(process.cwd(), 'uploads');
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch (err) {
+  try {
+    const fallbackDir = path.resolve('/tmp', 'enrol_uploads');
+    if (!fs.existsSync(fallbackDir)) {
+      fs.mkdirSync(fallbackDir, { recursive: true });
+    }
+  } catch (e) {
+    console.warn("Could not create uploads directory:", err);
+  }
+}
+
+// In-memory document binary storage cache
+const documentCache = new Map<string, { buffer: Buffer; mime: string; name: string; dataUrl: string }>();
+
+// Save document binary to disk and memory cache
+function saveDocumentBinary(docId: string, name: string, mime: string, dataUrlOrBuffer: string | Buffer) {
+  try {
+    let buffer: Buffer;
+    let dataUrl = '';
+    const safeMime = mime || 'application/octet-stream';
+    const safeName = name || 'document';
+
+    if (typeof dataUrlOrBuffer === 'string') {
+      dataUrl = dataUrlOrBuffer;
+      if (dataUrlOrBuffer.startsWith('data:')) {
+        const commaIndex = dataUrlOrBuffer.indexOf(',');
+        const base64Data = dataUrlOrBuffer.substring(commaIndex + 1);
+        buffer = Buffer.from(base64Data, 'base64');
+      } else {
+        buffer = Buffer.from(dataUrlOrBuffer, 'utf-8');
+      }
+    } else {
+      buffer = dataUrlOrBuffer;
+      dataUrl = `data:${safeMime};base64,${buffer.toString('base64')}`;
+    }
+
+    documentCache.set(docId, { buffer, mime: safeMime, name: safeName, dataUrl });
+
+    // Also persist to disk for container resilience
+    try {
+      const sanitized = safeName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const safeFilename = `${docId}_${sanitized}`;
+      const filePath = path.join(UPLOADS_DIR, safeFilename);
+      const metaPath = path.join(UPLOADS_DIR, `${docId}.meta.json`);
+      
+      fs.writeFileSync(filePath, buffer);
+      fs.writeFileSync(metaPath, JSON.stringify({ id: docId, name: safeName, mime: safeMime, filename: safeFilename, size: buffer.length }));
+    } catch (e) {
+      console.warn("Could not write document to disk, kept in memory cache:", e);
+    }
+  } catch (err) {
+    console.error("Error saving document binary:", err);
+  }
+}
+
+// Load document binary from memory cache, disk, or asynchronously from Supabase
+async function getDocumentBinaryAsync(docId: string): Promise<{ buffer: Buffer; mime: string; name: string; dataUrl: string } | null> {
+  if (documentCache.has(docId)) {
+    return documentCache.get(docId)!;
+  }
+
+  try {
+    const metaPath = path.join(UPLOADS_DIR, `${docId}.meta.json`);
+    if (fs.existsSync(metaPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      const filePath = path.join(UPLOADS_DIR, meta.filename);
+      if (fs.existsSync(filePath)) {
+        const buffer = fs.readFileSync(filePath);
+        const dataUrl = `data:${meta.mime || 'application/octet-stream'};base64,${buffer.toString('base64')}`;
+        const item = { buffer, mime: meta.mime || 'application/octet-stream', name: meta.name || 'document', dataUrl };
+        documentCache.set(docId, item);
+        return item;
+      }
+    }
+  } catch (err) {
+    console.error("Error reading document from disk:", err);
+  }
+
+  // Resilient fallback for Vercel: Query Supabase if not in local ephemeral lambda storage
+  if (supabase) {
+    try {
+      const { data } = await supabase.from('leads').select('*');
+      if (data && Array.isArray(data)) {
+        for (const row of data) {
+          const lead = unpackLeadWithMetadata(row);
+          if (Array.isArray(lead.documents)) {
+            const match = lead.documents.find((d: any) => d.id === docId);
+            if (match && match.dataUrl && typeof match.dataUrl === 'string' && match.dataUrl.startsWith('data:')) {
+              saveDocumentBinary(match.id, match.name, match.type, match.dataUrl);
+              if (documentCache.has(docId)) {
+                return documentCache.get(docId)!;
+              }
+            }
+          }
+        }
+      }
+    } catch (supaErr) {
+      console.warn("Supabase document lookup error:", supaErr);
+    }
+  }
+
+  return null;
+}
+
 function unpackLeadWithMetadata(dbLead: any) {
   const result: any = {};
   for (const key of Object.keys(dbLead)) {
@@ -280,8 +390,8 @@ function unpackLeadWithMetadata(dbLead: any) {
     result[mappedKey] = val;
   }
 
-  // Ensure documents is an array if present
-  if (result.documents && !Array.isArray(result.documents)) {
+  // Ensure documents is an array
+  if (!Array.isArray(result.documents)) {
     result.documents = [];
   }
 
@@ -296,6 +406,9 @@ function unpackLeadWithMetadata(dbLead: any) {
           if (parsed.counsellor && (!result.counsellor || result.counsellor.trim() === '')) {
             result.counsellor = parsed.counsellor;
           }
+          if (parsed.source && (!result.source || result.source.trim() === '')) {
+            result.source = parsed.source;
+          }
           if (parsed.documents && Array.isArray(parsed.documents) && parsed.documents.length > 0) {
             result.documents = parsed.documents;
           }
@@ -304,6 +417,35 @@ function unpackLeadWithMetadata(dbLead: any) {
         }
       }
     }
+  }
+
+  // Ensure default source is clean and standardized
+  if (!result.source || result.source === 'direct_apply' || result.source === 'contact' || result.source === 'inquiry') {
+    result.source = 'Website';
+  } else if (result.source === 'eligibility_calculator') {
+    result.source = 'Eligibility Calculator';
+  } else if (result.source === 'ai_chat') {
+    result.source = 'Website (AI Chat)';
+  }
+
+  // Ensure all documents have live URLs and dataUrl preserved
+  if (Array.isArray(result.documents)) {
+    result.documents = result.documents.map((d: any) => {
+      const docId = d.id || `doc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const liveUrl = `/api/documents/${docId}`;
+      const cached = documentCache.get(docId);
+      const dataUrl = d.dataUrl && d.dataUrl.startsWith('data:') ? d.dataUrl : (cached?.dataUrl || d.dataUrl || liveUrl);
+      return {
+        id: docId,
+        name: d.name || 'Document',
+        size: d.size || 0,
+        type: d.type || 'application/octet-stream',
+        category: d.category || 'General',
+        uploadedAt: d.uploadedAt || new Date().toISOString(),
+        url: d.url || liveUrl,
+        dataUrl
+      };
+    });
   }
 
   // Strip ENROL_META tag from remarks and notes so clean human text is exposed in UI
@@ -393,7 +535,15 @@ const handleLeadSubmission = async (req: express.Request, res: express.Response)
   const score = payload.score || payload.marks || payload.percentage || payload.gpa || '';
   const budget = payload.budget || payload.budgetRange || '';
   const locationPreference = payload.locationPreference || payload.location_preference || payload.preferredLocation || payload.location || payload.country || payload.destination || payload.preferredCountry || payload.preferred_country || '';
-  const source = payload.source || payload.lead_source || 'direct_apply';
+  const rawSource = payload.source || payload.lead_source || 'Website';
+  let source = rawSource;
+  if (source === 'direct_apply' || source === 'contact' || source === 'inquiry' || !source || source === '') {
+    source = 'Website';
+  } else if (source === 'eligibility_calculator') {
+    source = 'Eligibility Calculator';
+  } else if (source === 'ai_chat') {
+    source = 'Website (AI Chat)';
+  }
   const notes = payload.notes || payload.message || payload.comments || payload.query || payload.description || '';
   const counsellor = payload.counsellor || payload.counselor || '';
   const documents = Array.isArray(payload.documents) ? payload.documents : [];
@@ -500,10 +650,147 @@ app.post(['/api/contact', '/contact'], handleLeadSubmission);
 app.post(['/api/apply', '/apply'], handleLeadSubmission);
 app.post(['/api/inquiry', '/inquiry'], handleLeadSubmission);
 
+// 2b. POST /api/leads/bulk - Bulk lead creation endpoint for Excel, CSV, TSV, and JSON imports
+app.post(['/api/leads/bulk', '/leads/bulk'], async (req: express.Request, res: express.Response) => {
+  const body = req.body || {};
+  const rawItems = Array.isArray(body) ? body : (Array.isArray(body.leads) ? body.leads : []);
+
+  if (!rawItems || rawItems.length === 0) {
+    return res.status(400).json({ success: false, error: "No leads data provided in request body" });
+  }
+
+  const processedLeads: any[] = [];
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < rawItems.length; i++) {
+    const payload = rawItems[i] || {};
+    
+    // Name resolution
+    let name = payload.name || payload.fullName || payload.fullname || payload.studentName || payload.student_name || payload.Name || payload['Student Name'] || payload['Full Name'] || '';
+    if (!name || !name.trim()) {
+      const fName = payload.firstName || payload.first_name || payload.Fname || payload.fname || payload['First Name'] || '';
+      const lName = payload.lastName || payload.last_name || payload.Lname || payload.lname || payload['Last Name'] || '';
+      if (fName.trim() || lName.trim()) {
+        name = `${fName} ${lName}`.trim();
+      } else {
+        name = `Imported Lead #${i + 1}`;
+      }
+    }
+
+    const email = payload.email || payload.studentEmail || payload.student_email || payload.Email || payload.mail || payload['Email Address'] || payload['Student Email'] || '';
+    const phone = payload.phone || payload.studentPhone || payload.student_phone || payload.Phone || payload.mobile || payload.Mobile || payload.telephone || payload.tel || payload['Phone Number'] || payload['Mobile Number'] || payload['Contact Number'] || '';
+    const academicLevel = payload.academicLevel || payload.academic_level || payload.education || payload.studyLevel || payload.qualification || payload['Academic Level'] || payload['Education Level'] || 'Undergraduate';
+    const streamOfInterest = payload.streamOfInterest || payload.stream_of_interest || payload.course || payload.stream || payload.subject || payload.program || payload['Course'] || payload['Stream'] || payload['Field of Study'] || 'Computer Science & IT';
+    const degreeOfInterest = payload.degreeOfInterest || payload.degree_of_interest || payload.degree || payload['Degree'] || payload['Target Degree'] || '';
+    const score = payload.score || payload.marks || payload.percentage || payload.gpa || payload['Score'] || payload['GPA'] || payload['Percentage'] || '';
+    const budget = payload.budget || payload.budgetRange || payload['Budget'] || payload['Budget Range'] || '';
+    const locationPreference = payload.locationPreference || payload.location_preference || payload.preferredLocation || payload.location || payload.country || payload.destination || payload['Country'] || payload['Preferred Country'] || payload['Destination'] || '';
+    const rawSource = payload.source || payload.lead_source || payload['Source'] || payload['Lead Source'] || 'Excel Import';
+    const notes = payload.notes || payload.message || payload.comments || payload.query || payload.description || payload['Notes'] || payload['Remarks'] || payload['Comments'] || '';
+    const counsellor = payload.counsellor || payload.counselor || payload['Counselor'] || payload['Counsellor'] || payload['Assigned Counselor'] || '';
+    const disposition = payload.disposition || payload['Disposition'] || payload['Stage'] || payload['Lead Status'] || 'New Lead';
+    const subDisposition = payload.subDisposition || payload['Sub Disposition'] || payload['Sub-Disposition'] || 'NA';
+    const documents = Array.isArray(payload.documents) ? payload.documents : [];
+
+    const leadRecord = {
+      id: payload.id || `lead-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
+      name: name.trim(),
+      email: email.trim(),
+      phone: phone.trim(),
+      academicLevel: String(academicLevel).trim(),
+      streamOfInterest: String(streamOfInterest).trim(),
+      degreeOfInterest: String(degreeOfInterest).trim(),
+      score: String(score).trim(),
+      budget: String(budget).trim(),
+      locationPreference: String(locationPreference).trim(),
+      source: String(rawSource).trim() || 'Excel Import',
+      timestamp: payload.timestamp || now,
+      status: payload.status || 'New',
+      notes: String(notes).trim(),
+      remarks: payload.remarks || '',
+      followUpDate: payload.followUpDate || null,
+      disposition: String(disposition).trim(),
+      subDisposition: String(subDisposition).trim(),
+      priority: Number(payload.priority) || 1,
+      collegeId: payload.collegeId || null,
+      collegeName: payload.collegeName || null,
+      counsellor: String(counsellor).trim(),
+      documents: documents
+    };
+
+    processedLeads.push(leadRecord);
+  }
+
+  // Save to Supabase if connected
+  if (supabase && processedLeads.length > 0) {
+    try {
+      const dbLeads = processedLeads.map(l => mapLeadToSupabase(l));
+      
+      // Batch insert in chunks of 50 for stability
+      const chunkSize = 50;
+      for (let c = 0; c < dbLeads.length; c += chunkSize) {
+        const chunk = dbLeads.slice(c, c + chunkSize);
+        let { error } = await supabase.from('leads').insert(chunk);
+
+        if (error && (error.code === 'PGRST204' || error.code === '42703' || error.message?.toLowerCase().includes('column'))) {
+          // Retry with resilient metadata
+          const safeChunk = chunk.map((dbLead, idx) => {
+            const orig = processedLeads[c + idx];
+            const safeLead: any = {};
+            for (const [k, v] of Object.entries(dbLead)) {
+              if (k !== 'counsellor' && k !== 'counselor' && k !== 'documents') {
+                safeLead[k] = v;
+              }
+            }
+            const metaObj: any = {};
+            if (orig.counsellor) metaObj.counsellor = orig.counsellor;
+            if (orig.documents && orig.documents.length > 0) metaObj.documents = orig.documents;
+            if (Object.keys(metaObj).length > 0) {
+              const metaTag = `<!--ENROL_META:${JSON.stringify(metaObj)}-->`;
+              safeLead.remarks = safeLead.remarks ? `${safeLead.remarks}\n${metaTag}` : metaTag;
+            }
+            return safeLead;
+          });
+
+          await supabase.from('leads').insert(safeChunk);
+        }
+      }
+    } catch (dbErr) {
+      console.warn("Supabase bulk insert warning (falling back to memory):", dbErr);
+    }
+  }
+
+  // Update in-memory local leads
+  localLeads = [...processedLeads, ...localLeads];
+
+  return res.status(201).json({
+    success: true,
+    count: processedLeads.length,
+    leads: processedLeads,
+    message: `Successfully imported ${processedLeads.length} leads in bulk.`
+  });
+});
+
 // 3. PUT /api/leads/:id - Update an existing lead (Live counselor assignment, status, documents, etc.)
 app.put(['/api/leads/:id', '/leads/:id'], async (req, res) => {
   const { id } = req.params;
   const updates = req.body || {};
+
+  // If documents are passed in updates, extract any large base64 dataUrl and save to binary storage
+  if (Array.isArray(updates.documents)) {
+    updates.documents = updates.documents.map((doc: any) => {
+      const docId = doc.id || `doc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      if (doc.dataUrl && typeof doc.dataUrl === 'string' && doc.dataUrl.startsWith('data:')) {
+        saveDocumentBinary(docId, doc.name || 'document', doc.type || 'application/octet-stream', doc.dataUrl);
+      }
+      return {
+        ...doc,
+        id: docId,
+        url: `/api/documents/${docId}`,
+        dataUrl: doc.dataUrl || `/api/documents/${docId}`
+      };
+    });
+  }
 
   // Update in-memory cache immediately
   localLeads = localLeads.map(l => l.id === id ? { ...l, ...updates } : l);
@@ -569,7 +856,8 @@ app.put(['/api/leads/:id', '/leads/:id'], async (req, res) => {
             type: d.type,
             category: d.category || 'General',
             uploadedAt: d.uploadedAt,
-            dataUrl: d.dataUrl || ''
+            url: `/api/documents/${d.id}`,
+            dataUrl: d.dataUrl || `/api/documents/${d.id}`
           }));
         }
 
@@ -600,6 +888,158 @@ app.put(['/api/leads/:id', '/leads/:id'], async (req, res) => {
 
   const resultLead = localLeads.find(l => l.id === id) || updates;
   return res.json({ success: true, lead: resultLead });
+});
+
+// 3b. POST /api/leads/:id/documents - Direct document upload endpoint
+app.post(['/api/leads/:id/documents', '/leads/:id/documents'], async (req, res) => {
+  const { id } = req.params;
+  const { name, size, type, dataUrl, category } = req.body || {};
+
+  if (!name || !dataUrl) {
+    return res.status(400).json({ error: "Missing document name or dataUrl" });
+  }
+
+  const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const mimeType = type || 'application/octet-stream';
+  
+  // Save binary to server document store
+  saveDocumentBinary(docId, name, mimeType, dataUrl);
+
+  const newDocRecord = {
+    id: docId,
+    name,
+    size: size || 0,
+    type: mimeType,
+    category: category || 'General',
+    uploadedAt: new Date().toISOString(),
+    url: `/api/documents/${docId}`,
+    dataUrl: dataUrl
+  };
+
+  // Find lead and update documents
+  let targetLead = localLeads.find(l => l.id === id);
+  const currentDocs = targetLead?.documents || [];
+  const updatedDocs = [...currentDocs, newDocRecord];
+
+  if (targetLead) {
+    targetLead.documents = updatedDocs;
+  }
+
+  // Persist update in Supabase / metadata
+  if (supabase) {
+    try {
+      let existingLead: any = null;
+      try {
+        const { data: rowData } = await supabase.from('leads').select('*').eq('id', id).single();
+        if (rowData) {
+          existingLead = unpackLeadWithMetadata(rowData);
+        }
+      } catch (e) {}
+
+      const allDocs = [...(existingLead?.documents || []), newDocRecord];
+      // Deduplicate docs by id
+      const uniqueDocs = Array.from(new Map(allDocs.map(d => [d.id, d])).values());
+
+      const fullDocsToSave = uniqueDocs.map(d => ({
+        id: d.id,
+        name: d.name,
+        size: d.size,
+        type: d.type,
+        category: d.category || 'General',
+        uploadedAt: d.uploadedAt,
+        url: `/api/documents/${d.id}`,
+        dataUrl: d.dataUrl || `/api/documents/${d.id}`
+      }));
+
+      let { error } = await supabase
+        .from('leads')
+        .update({ documents: fullDocsToSave })
+        .eq('id', id);
+
+      if (error) {
+        // Fallback to ENROL_META in remarks
+        const rawRemarks = existingLead?.remarks || '';
+        const cleanRemarks = typeof rawRemarks === 'string' ? rawRemarks.replace(/<!--ENROL_META:[\s\S]*?-->/g, '').trim() : '';
+        const metaObj: any = {
+          documents: fullDocsToSave
+        };
+        if (existingLead?.counsellor) {
+          metaObj.counsellor = existingLead.counsellor;
+        }
+
+        const metaTag = `<!--ENROL_META:${JSON.stringify(metaObj)}-->`;
+        await supabase
+          .from('leads')
+          .update({ remarks: cleanRemarks ? `${cleanRemarks}\n${metaTag}` : metaTag })
+          .eq('id', id);
+      }
+    } catch (err) {
+      console.error("Failed to persist document upload to Supabase:", err);
+    }
+  }
+
+  return res.json({ success: true, document: newDocRecord, documents: updatedDocs });
+});
+
+// 3c. GET /api/documents/:docId - Stream/serve document file live
+app.get(['/api/documents/:docId', '/documents/:docId'], async (req, res) => {
+  const { docId } = req.params;
+  const doc = await getDocumentBinaryAsync(docId);
+  
+  if (!doc) {
+    return res.status(404).json({ error: "Document not found or expired from server cache" });
+  }
+
+  res.setHeader('Content-Type', doc.mime || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(doc.name)}"`);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(doc.buffer);
+});
+
+// 3d. DELETE /api/leads/:id/documents/:docId - Delete document
+app.delete(['/api/leads/:id/documents/:docId', '/leads/:id/documents/:docId'], async (req, res) => {
+  const { id, docId } = req.params;
+
+  let targetLead = localLeads.find(l => l.id === id);
+  if (targetLead && Array.isArray(targetLead.documents)) {
+    targetLead.documents = targetLead.documents.filter((d: any) => d.id !== docId);
+  }
+
+  if (supabase) {
+    try {
+      let existingLead: any = null;
+      try {
+        const { data: rowData } = await supabase.from('leads').select('*').eq('id', id).single();
+        if (rowData) {
+          existingLead = unpackLeadWithMetadata(rowData);
+        }
+      } catch (e) {}
+
+      const currentDocs = existingLead?.documents || [];
+      const updatedDocs = currentDocs.filter((d: any) => d.id !== docId);
+
+      let { error } = await supabase
+        .from('leads')
+        .update({ documents: updatedDocs })
+        .eq('id', id);
+
+      if (error) {
+        const rawRemarks = existingLead?.remarks || '';
+        const cleanRemarks = typeof rawRemarks === 'string' ? rawRemarks.replace(/<!--ENROL_META:[\s\S]*?-->/g, '').trim() : '';
+        const metaObj: any = { documents: updatedDocs };
+        if (existingLead?.counsellor) metaObj.counsellor = existingLead.counsellor;
+        const metaTag = `<!--ENROL_META:${JSON.stringify(metaObj)}-->`;
+        await supabase
+          .from('leads')
+          .update({ remarks: cleanRemarks ? `${cleanRemarks}\n${metaTag}` : metaTag })
+          .eq('id', id);
+      }
+    } catch (err) {
+      console.error("Failed to delete document in Supabase:", err);
+    }
+  }
+
+  return res.json({ success: true });
 });
 
 // 4. DELETE /api/leads/:id - Delete a lead

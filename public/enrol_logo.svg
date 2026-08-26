@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1350 400" width="100%" height="100%">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@700;800&amp;family=Montserrat:wght@800;900&amp;display=swap');
+      .brand-text {
+        font-family: 'Comfortaa', 'Montserrat', 'Century Gothic', -apple-system, sans-serif;
+        font-weight: 800;
+      }
+      .tagline-text {
+        font-family: 'Montserrat', 'Inter', -apple-system, sans-serif;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+      }
+    </style>
+  </defs>
+
+  <!-- 1. LEFT EMBLEM: 3D Graduation Cap with Airplane -->
+  <g id="enrol-mark" transform="translate(20, 30)">
+    <!-- Mortarboard Diamond Top (Cyan) -->
+    <path 
+      d="M 170 20 L 335 92 L 170 164 L 5 92 Z" 
+      fill="#009FE3" 
+    />
+    
+    <!-- Left Box Face (Cyan) -->
+    <path 
+      d="M 44 120 L 158 172 L 158 308 L 44 256 Z" 
+      fill="#009FE3" 
+    />
+    
+    <!-- Right Box Face (Cyan) -->
+    <path 
+      d="M 182 172 L 296 120 L 296 256 L 182 308 Z" 
+      fill="#009FE3" 
+    />
+
+    <!-- White Airplane Silhouette -->
+    <!-- Tail Fin (Left) -->
+    <path 
+      d="M 72 182 L 96 182 L 100 248 L 86 256 L 78 228 L 64 220 L 64 204 L 78 212 Z" 
+      fill="#FFFFFF" 
+    />
+    
+    <!-- Airplane Fuselage -->
+    <path 
+      d="M 170 152 L 194 196 L 170 316 L 146 196 Z" 
+      fill="#FFFFFF" 
+    />
+    <!-- Left Wing -->
+    <path 
+      d="M 156 192 L 68 230 L 82 242 L 154 208 Z" 
+      fill="#FFFFFF" 
+    />
+    <!-- Right Wing -->
+    <path 
+      d="M 184 192 L 272 230 L 258 242 L 186 208 Z" 
+      fill="#FFFFFF" 
+    />
+  </g>
+
+  <!-- 2. 'enrol' WORDMARK -->
+  <g id="enrol-letters" transform="translate(370, 70)">
+    <!-- 'e' -->
+    <g transform="translate(0, 40)">
+      <path 
+        d="M 140 100 A 70 70 0 1 0 70 170 C 110 170 135 150 140 130 L 110 130 C 105 142 90 148 70 148 C 45 148 26 130 26 100 L 140 100 Z M 26 80 C 28 55 45 32 70 32 C 95 32 112 55 114 80 L 26 80 Z" 
+        fill="#FFFFFF" 
+      />
+    </g>
+
+    <!-- 'n' -->
+    <g transform="translate(170, 40)">
+      <path 
+        d="M 25 35 L 25 170 L 52 170 L 52 95 C 52 60 75 48 100 48 C 125 48 138 60 138 90 L 138 170 L 165 170 L 165 85 C 165 42 140 25 102 25 C 78 25 60 38 52 52 L 52 35 Z" 
+        fill="#FFFFFF" 
+      />
+    </g>
+
+    <!-- 'r' -->
+    <g transform="translate(370, 40)">
+      <path 
+        d="M 25 35 L 25 170 L 52 170 L 52 95 C 52 65 72 48 105 48 L 105 22 C 78 22 60 35 52 55 L 52 35 Z" 
+        fill="#FFFFFF" 
+      />
+    </g>
+
+    <!-- 'o' with embedded Right Chevron -->
+    <g transform="translate(505, 40)">
+      <!-- Outer Circle -->
+      <circle cx="85" cy="100" r="70" fill="#FFFFFF" />
+      <!-- Inner Dark Background -->
+      <circle cx="85" cy="100" r="45" fill="#0B1329" />
+      <!-- Chevron Arrow inside 'o' -->
+      <path 
+        d="M 72 70 L 102 100 L 72 130 L 82 140 L 122 100 L 82 60 Z" 
+        fill="#FFFFFF" 
+      />
+    </g>
+
+    <!-- 'l' -->
+    <g transform="translate(705, 40)">
+      <rect x="25" y="0" width="28" height="170" rx="14" fill="#FFFFFF" />
+    </g>
+  </g>
+
+  <!-- 3. TAGLINE: Overseas Education Redefined -->
+  <g id="enrol-tagline" transform="translate(560, 345)">
+    <text 
+      x="0" 
+      y="0" 
+      fill="#009FE3" 
+      font-size="44" 
+      class="tagline-text"
+    >Overseas Education Redefined</text>
+  </g>
+</svg>

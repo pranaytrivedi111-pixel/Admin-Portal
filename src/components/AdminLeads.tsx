@@ -5,10 +5,12 @@ import {
   Database, ChevronDown, ChevronUp, Copy, ExternalLink, AlertCircle, Sparkles,
   MessageCircle, Flame, Zap, Snowflake, AlertTriangle, FileText, Trophy, Target,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X, Plus,
-  UserCheck, UserPlus, UserMinus, UserX, Paperclip, Upload, FolderOpen, Eye, ShieldCheck, CheckCircle2
+  UserCheck, UserPlus, UserMinus, UserX, Paperclip, Upload, FolderOpen, Eye, ShieldCheck, CheckCircle2,
+  Globe, Tag, GraduationCap, BookOpen, Layers, Compass, PlusCircle
 } from 'lucide-react';
 import { Lead, LeadDocument } from '../types';
 import LeadDocumentVault from './LeadDocumentVault';
+import BulkLeadUploadModal from './BulkLeadUploadModal';
 import { maskEmail, maskPhone } from '../utils/masking';
 
 export interface DispositionConfig {
@@ -131,10 +133,63 @@ export const DISPOSITIONS_MAP: Record<string, DispositionConfig> = {
   }
 };
 
-const DEFAULT_COUNSELLORS = ['Siraj', 'Sussan', 'Pranay', 'Shramin'];
+export const DEFAULT_COUNSELLORS: string[] = ['Siraj', 'Sussan', 'Pranay', 'Shramin'];
+
+export const DEFAULT_SOURCES: string[] = [
+  'Website',
+  'Google Ads',
+  'Meta Ads',
+  'Walk-in',
+  'Referral',
+  'Cold Call',
+  'Education Fair',
+  'WhatsApp',
+  'Organic Search',
+  'Direct Apply',
+  'Eligibility Calculator',
+  'Excel Import',
+  'Agent / Partner'
+];
+
+export const DEFAULT_COURSES: string[] = [
+  'Computer Science & IT',
+  'Data Science & AI',
+  'MBA / Management & Leadership',
+  'Business Analytics & FinTech',
+  'Mechanical & Aerospace Engineering',
+  'Civil & Structural Engineering',
+  'Electrical & Computer Engineering',
+  'Biotechnology & Biomedical Sciences',
+  'Health Sciences & Public Health (MPH)',
+  'Nursing & Healthcare',
+  'Cyber Security & Cloud Architecture',
+  'Finance, Accounting & Economics',
+  'Law & International Relations',
+  'Hospitality, Tourism & Event Management',
+  'Architecture, Urban Planning & Design',
+  'Digital Marketing & Media Communications',
+  'Psychology & Behavioral Sciences',
+  'Supply Chain & Logistics'
+];
+
+export const getSourceBadgeStyle = (sourceName?: string) => {
+  const s = (sourceName || 'Website').toLowerCase();
+  if (s.includes('google')) return 'bg-amber-50 text-amber-800 border-amber-200';
+  if (s.includes('meta') || s.includes('facebook') || s.includes('instagram')) return 'bg-indigo-50 text-indigo-800 border-indigo-200';
+  if (s.includes('walk') || s.includes('visit')) return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  if (s.includes('referral') || s.includes('partner') || s.includes('agent')) return 'bg-purple-50 text-purple-800 border-purple-200';
+  if (s.includes('call') || s.includes('tele')) return 'bg-blue-50 text-blue-800 border-blue-200';
+  if (s.includes('fair') || s.includes('seminar') || s.includes('event')) return 'bg-orange-50 text-orange-800 border-orange-200';
+  if (s.includes('whatsapp') || s.includes('chat')) return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  if (s.includes('calculator')) return 'bg-teal-50 text-teal-800 border-teal-200';
+  if (s.includes('excel') || s.includes('bulk') || s.includes('import') || s.includes('sheet')) return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  return 'bg-sky-50 text-sky-800 border-sky-200'; // Default for Website & others
+};
 
 interface AdminLeadsProps {
   leads: Lead[];
+  onAddLead?: (lead: Partial<Lead>) => Promise<Lead | null>;
+  onBulkAddLeads?: (leads: Partial<Lead>[]) => Promise<{ success: boolean; count: number }>;
   onUpdateLeadStatus: (leadId: string, newStatus: Lead['status']) => void;
   onUpdateLeadDetails?: (leadId: string, updates: Partial<Lead>) => void;
   onClearLeads: () => void;
@@ -150,6 +205,8 @@ interface AdminLeadsProps {
 
 export default function AdminLeads({ 
   leads = [], 
+  onAddLead,
+  onBulkAddLeads,
   onUpdateLeadStatus, 
   onUpdateLeadDetails,
   onClearLeads, 
@@ -165,18 +222,21 @@ export default function AdminLeads({
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'All' | 'Hot' | 'Warm' | 'Cold' | 'Dead' | 'Converted' | 'New'>('All');
   const [counsellorFilter, setCounsellorFilter] = useState<string>('All');
+  const [sourceFilter, setSourceFilter] = useState<string>('All');
+  const [courseFilter, setCourseFilter] = useState<string>('All');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
 
-  // Counsellors List State (persisted in localStorage, supports adding and removing any counselor)
+  // Counsellors List State (persisted in localStorage)
   const [counsellorsList, setCounsellorsList] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('enrol_counsellors_list');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed;
         }
       }
@@ -186,14 +246,83 @@ export default function AdminLeads({
     return DEFAULT_COUNSELLORS;
   });
 
-  // Manage Counselors Modal State
+  // Sources List State (persisted in localStorage)
+  const [sourcesList, setSourcesList] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('enrol_sources_list');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Error loading sources:', e);
+    }
+    return DEFAULT_SOURCES;
+  });
+
+  // Courses List State (persisted in localStorage)
+  const [coursesList, setCoursesList] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('enrol_courses_list');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Error loading courses:', e);
+    }
+    return DEFAULT_COURSES;
+  });
+
+  // Manage Modals State
   const [isManageCounselorsOpen, setIsManageCounselorsOpen] = useState(false);
   const [manageCounselorInput, setManageCounselorInput] = useState('');
   const [counselorToDelete, setCounselorToDelete] = useState<string | null>(null);
 
-  // Dynamic input for typing counsellor names live
+  const [isManageSourcesOpen, setIsManageSourcesOpen] = useState(false);
+  const [manageSourceInput, setManageSourceInput] = useState('');
+  const [sourceToDelete, setSourceToDelete] = useState<string | null>(null);
+
+  const [isManageCoursesOpen, setIsManageCoursesOpen] = useState(false);
+  const [manageCourseInput, setManageCourseInput] = useState('');
+  const [courseToDelete, setCourseToDelete] = useState<string | null>(null);
+
+  // Add New Lead Modal State
+  const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
+  const [newLeadName, setNewLeadName] = useState('');
+  const [newLeadPhone, setNewLeadPhone] = useState('');
+  const [newLeadEmail, setNewLeadEmail] = useState('');
+  const [newLeadSource, setNewLeadSource] = useState('Website');
+  const [newLeadCourse, setNewLeadCourse] = useState('Computer Science & IT');
+  const [newLeadAcademicLevel, setNewLeadAcademicLevel] = useState('Undergraduate');
+  const [newLeadDegree, setNewLeadDegree] = useState('');
+  const [newLeadCounselor, setNewLeadCounselor] = useState('');
+  const [newLeadDisposition, setNewLeadDisposition] = useState('New Lead');
+  const [newLeadBudget, setNewLeadBudget] = useState('');
+  const [newLeadScore, setNewLeadScore] = useState('');
+  const [newLeadLocation, setNewLeadLocation] = useState('');
+  const [newLeadNotes, setNewLeadNotes] = useState('');
+  const [isSubmittingNewLead, setIsSubmittingNewLead] = useState(false);
+
+  // Dynamic input for typing counsellor, source, and course names live in drawer
   const [dynamicCounsellorInput, setDynamicCounsellorInput] = useState('');
+  const [dynamicSourceInput, setDynamicSourceInput] = useState('');
+  const [dynamicCourseInput, setDynamicCourseInput] = useState('');
   const [activeDocModalLead, setActiveDocModalLead] = useState<Lead | null>(null);
+
+  // Keep document modal lead state in sync with latest leads array
+  useEffect(() => {
+    if (activeDocModalLead) {
+      const fresh = leads.find(l => l.id === activeDocModalLead.id);
+      if (fresh && JSON.stringify(fresh.documents) !== JSON.stringify(activeDocModalLead.documents)) {
+        setActiveDocModalLead(fresh);
+      }
+    }
+  }, [leads]);
 
   // Sheet configurations state
   const [sheetUrlInput, setSheetUrlInput] = useState(googleSheetUrl);
@@ -214,6 +343,10 @@ export default function AdminLeads({
   const [tempSubDisposition, setTempSubDisposition] = useState('');
   const [tempPriority, setTempPriority] = useState<number>(3);
   const [tempCounsellor, setTempCounsellor] = useState('');
+  const [tempSource, setTempSource] = useState('Website');
+  const [tempCourse, setTempCourse] = useState('Computer Science & IT');
+  const [tempAcademicLevel, setTempAcademicLevel] = useState('Undergraduate');
+  const [tempDegree, setTempDegree] = useState('');
   const [customWhatsAppMessage, setCustomWhatsAppMessage] = useState('');
   const [isUpdatingDetails, setIsUpdatingDetails] = useState(false);
   const [updateSuccessMsg, setUpdateSuccessMsg] = useState<string | null>(null);
@@ -221,7 +354,7 @@ export default function AdminLeads({
   // Reset page to 1 when search or filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, categoryFilter, counsellorFilter, startDate, endDate, itemsPerPage]);
+  }, [searchTerm, categoryFilter, counsellorFilter, sourceFilter, courseFilter, startDate, endDate, itemsPerPage]);
 
   const addCounsellorToPool = (name: string) => {
     const trimmed = name.trim();
@@ -265,7 +398,7 @@ export default function AdminLeads({
     try {
       localStorage.setItem('enrol_counsellors_list', JSON.stringify(DEFAULT_COUNSELLORS));
     } catch (e) {}
-    setUpdateSuccessMsg('Reset counselors roster to default team (Siraj, Sussan, Pranay, Shramin)');
+    setUpdateSuccessMsg('Reset counselors roster to default team');
     setTimeout(() => setUpdateSuccessMsg(null), 3500);
   };
 
@@ -279,6 +412,182 @@ export default function AdminLeads({
       await onUpdateLeadDetails(leadId, { counsellor: trimmed });
       setUpdateSuccessMsg(trimmed ? `Assigned to ${trimmed} live!` : 'Lead unassigned');
       setTimeout(() => setUpdateSuccessMsg(null), 3000);
+    }
+  };
+
+  // Source pool helpers
+  const addSourceToPool = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (!sourcesList.some(s => s.toLowerCase() === trimmed.toLowerCase())) {
+      const updated = [...sourcesList, trimmed];
+      setSourcesList(updated);
+      try {
+        localStorage.setItem('enrol_sources_list', JSON.stringify(updated));
+      } catch (e) {}
+    }
+  };
+
+  const removeSourceFromPool = async (sourceName: string, resetLeads: boolean = false) => {
+    const updated = sourcesList.filter(s => s.toLowerCase() !== sourceName.toLowerCase());
+    setSourcesList(updated);
+    try {
+      localStorage.setItem('enrol_sources_list', JSON.stringify(updated));
+    } catch (e) {}
+
+    if (sourceFilter.toLowerCase() === sourceName.toLowerCase()) {
+      setSourceFilter('All');
+    }
+    if (tempSource.toLowerCase() === sourceName.toLowerCase()) {
+      setTempSource('Website');
+    }
+
+    if (resetLeads && onUpdateLeadDetails) {
+      const affectedLeads = leads.filter(l => (l.source || '').toLowerCase() === sourceName.toLowerCase());
+      for (const lead of affectedLeads) {
+        await onUpdateLeadDetails(lead.id, { source: 'Website' });
+      }
+    }
+
+    setUpdateSuccessMsg(`Removed source "${sourceName}" successfully`);
+    setTimeout(() => setUpdateSuccessMsg(null), 3000);
+  };
+
+  const resetSourcesToDefault = () => {
+    setSourcesList(DEFAULT_SOURCES);
+    try {
+      localStorage.setItem('enrol_sources_list', JSON.stringify(DEFAULT_SOURCES));
+    } catch (e) {}
+    setUpdateSuccessMsg('Reset sources roster to default options');
+    setTimeout(() => setUpdateSuccessMsg(null), 3500);
+  };
+
+  const handleLiveUpdateSource = async (leadId: string, sourceName: string) => {
+    const trimmed = sourceName.trim() || 'Website';
+    addSourceToPool(trimmed);
+    setTempSource(trimmed);
+    if (onUpdateLeadDetails) {
+      await onUpdateLeadDetails(leadId, { source: trimmed });
+      setUpdateSuccessMsg(`Lead source set to "${trimmed}" live!`);
+      setTimeout(() => setUpdateSuccessMsg(null), 3000);
+    }
+  };
+
+  // Course pool helpers
+  const addCourseToPool = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (!coursesList.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
+      const updated = [...coursesList, trimmed];
+      setCoursesList(updated);
+      try {
+        localStorage.setItem('enrol_courses_list', JSON.stringify(updated));
+      } catch (e) {}
+    }
+  };
+
+  const removeCourseFromPool = async (courseName: string) => {
+    const updated = coursesList.filter(c => c.toLowerCase() !== courseName.toLowerCase());
+    setCoursesList(updated);
+    try {
+      localStorage.setItem('enrol_courses_list', JSON.stringify(updated));
+    } catch (e) {}
+
+    if (courseFilter.toLowerCase() === courseName.toLowerCase()) {
+      setCourseFilter('All');
+    }
+    if (tempCourse.toLowerCase() === courseName.toLowerCase()) {
+      setTempCourse(coursesList[0] || 'Computer Science & IT');
+    }
+
+    setUpdateSuccessMsg(`Removed course "${courseName}" successfully`);
+    setTimeout(() => setUpdateSuccessMsg(null), 3000);
+  };
+
+  const resetCoursesToDefault = () => {
+    setCoursesList(DEFAULT_COURSES);
+    try {
+      localStorage.setItem('enrol_courses_list', JSON.stringify(DEFAULT_COURSES));
+    } catch (e) {}
+    setUpdateSuccessMsg('Reset courses roster to default programs');
+    setTimeout(() => setUpdateSuccessMsg(null), 3500);
+  };
+
+  const handleLiveUpdateCourse = async (leadId: string, courseName: string, academicLevel?: string, degree?: string) => {
+    const trimmed = courseName.trim();
+    if (trimmed) {
+      addCourseToPool(trimmed);
+    }
+    setTempCourse(trimmed);
+    if (academicLevel) setTempAcademicLevel(academicLevel);
+    if (degree !== undefined) setTempDegree(degree);
+
+    if (onUpdateLeadDetails) {
+      const updates: Partial<Lead> = { streamOfInterest: trimmed };
+      if (academicLevel) updates.academicLevel = academicLevel;
+      if (degree !== undefined) updates.degreeOfInterest = degree;
+      await onUpdateLeadDetails(leadId, updates);
+      setUpdateSuccessMsg(`Lead program set to "${trimmed}" live!`);
+      setTimeout(() => setUpdateSuccessMsg(null), 3000);
+    }
+  };
+
+  const handleAddLeadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLeadName.trim() || !newLeadPhone.trim()) {
+      alert('Please provide student name and phone number');
+      return;
+    }
+    setIsSubmittingNewLead(true);
+    try {
+      if (newLeadSource) addSourceToPool(newLeadSource);
+      if (newLeadCourse) addCourseToPool(newLeadCourse);
+      if (newLeadCounselor) addCounsellorToPool(newLeadCounselor);
+
+      const leadPayload: Partial<Lead> = {
+        name: newLeadName.trim(),
+        phone: newLeadPhone.trim(),
+        email: newLeadEmail.trim() || `${newLeadName.trim().toLowerCase().replace(/[^a-z0-9]/g, '.')}@student.enrol.org`,
+        source: newLeadSource || 'Website',
+        streamOfInterest: newLeadCourse || 'Computer Science & IT',
+        academicLevel: newLeadAcademicLevel || 'Undergraduate',
+        degreeOfInterest: newLeadDegree.trim() || '',
+        counsellor: newLeadCounselor.trim() || '',
+        disposition: newLeadDisposition || 'New Lead',
+        subDisposition: 'NA',
+        budget: newLeadBudget.trim() || '',
+        score: newLeadScore.trim() || '',
+        locationPreference: newLeadLocation.trim() || '',
+        notes: newLeadNotes.trim() || '',
+        remarks: newLeadNotes.trim() || '',
+        status: newLeadDisposition === 'Converted' ? 'Enrolled' : 'New'
+      };
+
+      if (onAddLead) {
+        await onAddLead(leadPayload);
+      }
+
+      // Reset form
+      setNewLeadName('');
+      setNewLeadPhone('');
+      setNewLeadEmail('');
+      setNewLeadSource('Website');
+      setNewLeadCourse(coursesList[0] || 'Computer Science & IT');
+      setNewLeadAcademicLevel('Undergraduate');
+      setNewLeadDegree('');
+      setNewLeadCounselor('');
+      setNewLeadDisposition('New Lead');
+      setNewLeadBudget('');
+      setNewLeadScore('');
+      setNewLeadLocation('');
+      setNewLeadNotes('');
+      setIsAddLeadModalOpen(false);
+      setUpdateSuccessMsg('New student lead created successfully!');
+      setTimeout(() => setUpdateSuccessMsg(null), 3500);
+    } catch (err) {
+      console.error('Error creating lead:', err);
+    } finally {
+      setIsSubmittingNewLead(false);
     }
   };
 
@@ -307,6 +616,8 @@ export default function AdminLeads({
     const disposition = l.disposition || '';
     const subDisposition = l.subDisposition || '';
     const counsellor = l.counsellor || '';
+    const source = l.source || 'Website';
+    const stream = l.streamOfInterest || '';
 
     const matchesSearch = 
       name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -315,7 +626,9 @@ export default function AdminLeads({
       collegeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       disposition.toLowerCase().includes(searchTerm.toLowerCase()) ||
       subDisposition.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      counsellor.toLowerCase().includes(searchTerm.toLowerCase());
+      counsellor.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      source.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      stream.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesCategory = 
       categoryFilter === 'All' || 
@@ -327,6 +640,14 @@ export default function AdminLeads({
       counsellorFilter === 'All' || 
       (counsellorFilter === 'Unassigned' ? (!l.counsellor || l.counsellor.trim() === '') : 
        l.counsellor === counsellorFilter);
+
+    const matchesSource = 
+      sourceFilter === 'All' || 
+      (source || 'Website').toLowerCase() === sourceFilter.toLowerCase();
+
+    const matchesCourse = 
+      courseFilter === 'All' || 
+      (stream || '').toLowerCase() === courseFilter.toLowerCase();
 
     let matchesDate = true;
     if (l.timestamp) {
@@ -349,7 +670,7 @@ export default function AdminLeads({
       matchesDate = false;
     }
 
-    return matchesSearch && matchesCategory && matchesCounsellor && matchesDate;
+    return matchesSearch && matchesCategory && matchesCounsellor && matchesSource && matchesCourse && matchesDate;
   });
 
   const indexOfLastItem = currentPage * itemsPerPage;
@@ -379,6 +700,12 @@ export default function AdminLeads({
       setTempPriority(lead.priority !== undefined ? lead.priority : 3);
       setTempCounsellor(lead.counsellor || '');
       setDynamicCounsellorInput('');
+      setTempSource(lead.source || 'Website');
+      setDynamicSourceInput('');
+      setTempCourse(lead.streamOfInterest || coursesList[0] || 'Computer Science & IT');
+      setDynamicCourseInput('');
+      setTempAcademicLevel(lead.academicLevel || 'Undergraduate');
+      setTempDegree(lead.degreeOfInterest || '');
       setCustomWhatsAppMessage('');
       setUpdateSuccessMsg(null);
     }
@@ -418,7 +745,11 @@ export default function AdminLeads({
         disposition: tempDisposition || 'New Lead',
         subDisposition: tempSubDisposition || 'NA',
         priority: tempPriority,
-        counsellor: tempCounsellor
+        counsellor: tempCounsellor,
+        source: tempSource || 'Website',
+        streamOfInterest: tempCourse,
+        academicLevel: tempAcademicLevel,
+        degreeOfInterest: tempDegree
       };
 
       if (lead && lead.status === 'New') {
@@ -431,6 +762,12 @@ export default function AdminLeads({
 
       if (tempCounsellor) {
         addCounsellorToPool(tempCounsellor);
+      }
+      if (tempSource) {
+        addSourceToPool(tempSource);
+      }
+      if (tempCourse) {
+        addCourseToPool(tempCourse);
       }
 
       await onUpdateLeadDetails(leadId, updates);
@@ -645,6 +982,289 @@ export default function AdminLeads({
                       Clear Assignment
                     </button>
                   )}
+                </div>
+              </div>
+
+              {/* LIVE LEAD SOURCE ASSIGNMENT & MANAGEMENT BOX */}
+              <div className="bg-sky-50/50 border border-sky-100 rounded-2xl p-4 shadow-xs">
+                <div className="flex items-center justify-between mb-2.5">
+                  <label className="text-[11px] font-black text-sky-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <Globe className="w-4 h-4 text-sky-600" />
+                    Lead Acquisition Source (Default: Website)
+                  </label>
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${getSourceBadgeStyle(tempSource)}`}>
+                    <Tag className="w-3 h-3" /> Source: {tempSource || 'Website'}
+                  </span>
+                </div>
+
+                {/* Dropdown & Dynamic Typing Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block mb-1">Select Source:</span>
+                    <select
+                      value={tempSource}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setTempSource(val);
+                        handleLiveUpdateSource(lead.id, val);
+                      }}
+                      className="w-full bg-white border border-sky-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 cursor-pointer shadow-xs"
+                      id={`source-dropdown-${lead.id}`}
+                    >
+                      {sourcesList.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block mb-1">Or Type Custom Source:</span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="e.g. Instagram Ads, Edu Expo..."
+                        value={dynamicSourceInput}
+                        onChange={(e) => setDynamicSourceInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (dynamicSourceInput.trim()) {
+                              handleLiveUpdateSource(lead.id, dynamicSourceInput);
+                              setDynamicSourceInput('');
+                            }
+                          }
+                        }}
+                        className="flex-1 bg-white border border-sky-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 shadow-xs"
+                        id={`dynamic-source-input-${lead.id}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (dynamicSourceInput.trim()) {
+                            handleLiveUpdateSource(lead.id, dynamicSourceInput);
+                            setDynamicSourceInput('');
+                          }
+                        }}
+                        disabled={!dynamicSourceInput.trim()}
+                        className="px-3 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 shadow-xs"
+                        title="Set new source on lead immediately"
+                      >
+                        Apply Live
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick 1-Click Source Badges */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-sky-100/70">
+                  <span className="text-[9px] font-black uppercase text-sky-700 mr-1">Quick Select:</span>
+                  {sourcesList.map((s) => (
+                    <div key={s} className="inline-flex items-center group">
+                      <button
+                        type="button"
+                        onClick={() => handleLiveUpdateSource(lead.id, s)}
+                        className={`px-2.5 py-1 rounded-l-lg text-[10px] font-black transition-all cursor-pointer ${
+                          tempSource.toLowerCase() === s.toLowerCase()
+                            ? 'bg-sky-600 text-white shadow-xs'
+                            : 'bg-white text-sky-800 border border-sky-200 hover:bg-sky-50'
+                        }`}
+                        title={`Set source to ${s}`}
+                      >
+                        {s}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Remove source "${s}" from active roster?`)) {
+                            removeSourceFromPool(s);
+                          }
+                        }}
+                        className={`px-1.5 py-1 rounded-r-lg border-y border-r text-[10px] transition-all cursor-pointer ${
+                          tempSource.toLowerCase() === s.toLowerCase()
+                            ? 'bg-sky-700 text-sky-200 hover:text-white border-sky-800'
+                            : 'bg-white text-slate-400 hover:text-rose-600 border-sky-200 hover:bg-rose-50'
+                        }`}
+                        title={`Remove "${s}" from sources list`}
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setIsManageSourcesOpen(true)}
+                    className="px-2 py-1 rounded-lg text-[10px] font-bold text-sky-700 bg-sky-100 hover:bg-sky-200 border border-sky-300 transition-colors flex items-center gap-1 ml-1 cursor-pointer"
+                    title="Open Source Management Panel"
+                  >
+                    <Layers className="w-3 h-3" />
+                    <span>Manage Sources</span>
+                  </button>
+
+                  {tempSource !== 'Website' && (
+                    <button
+                      type="button"
+                      onClick={() => handleLiveUpdateSource(lead.id, 'Website')}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold text-sky-600 bg-white hover:bg-sky-50 border border-sky-200 ml-auto transition-colors cursor-pointer"
+                    >
+                      Default to Website
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* LIVE COURSE / PROGRAM OF INTEREST MANAGEMENT BOX */}
+              <div className="bg-teal-50/40 border border-teal-100 rounded-2xl p-4 shadow-xs">
+                <div className="flex items-center justify-between mb-2.5">
+                  <label className="text-[11px] font-black text-teal-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <GraduationCap className="w-4 h-4 text-teal-600" />
+                    Course & Academic Stream of Interest
+                  </label>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-100 text-teal-800 border border-teal-200">
+                    <BookOpen className="w-3 h-3" /> {tempCourse || 'General Admissions'}
+                  </span>
+                </div>
+
+                {/* Course Selector & Dynamic Custom Course */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block mb-1">Select Study Program / Stream:</span>
+                    <select
+                      value={tempCourse}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setTempCourse(val);
+                        handleLiveUpdateCourse(lead.id, val, tempAcademicLevel, tempDegree);
+                      }}
+                      className="w-full bg-white border border-teal-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 cursor-pointer shadow-xs"
+                      id={`course-dropdown-${lead.id}`}
+                    >
+                      {coursesList.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block mb-1">Or Add / Type Custom Course:</span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="e.g. AI & Robotics, Aviation..."
+                        value={dynamicCourseInput}
+                        onChange={(e) => setDynamicCourseInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (dynamicCourseInput.trim()) {
+                              handleLiveUpdateCourse(lead.id, dynamicCourseInput, tempAcademicLevel, tempDegree);
+                              setDynamicCourseInput('');
+                            }
+                          }
+                        }}
+                        className="flex-1 bg-white border border-teal-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 shadow-xs"
+                        id={`dynamic-course-input-${lead.id}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (dynamicCourseInput.trim()) {
+                            handleLiveUpdateCourse(lead.id, dynamicCourseInput, tempAcademicLevel, tempDegree);
+                            setDynamicCourseInput('');
+                          }
+                        }}
+                        disabled={!dynamicCourseInput.trim()}
+                        className="px-3 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 shadow-xs"
+                        title="Set program on lead immediately"
+                      >
+                        Apply Live
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Academic Level & Target Degree row */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 pt-2 border-t border-teal-100/60">
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block mb-1">Academic Level:</span>
+                    <select
+                      value={tempAcademicLevel}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setTempAcademicLevel(val);
+                        handleLiveUpdateCourse(lead.id, tempCourse, val, tempDegree);
+                      }}
+                      className="w-full bg-white border border-teal-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 cursor-pointer shadow-xs"
+                      id={`academic-level-dropdown-${lead.id}`}
+                    >
+                      <option value="Undergraduate">Undergraduate (Bachelor's / BS / B.Tech)</option>
+                      <option value="Postgraduate / Masters">Postgraduate / Masters (MS / MBA / M.Tech)</option>
+                      <option value="Doctoral / PhD">Doctoral / PhD</option>
+                      <option value="Diploma / Certificate">Diploma / Certificate</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block mb-1">Target Degree / Specific Specialization:</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. MS in Data Engineering, MBA Finance..."
+                      value={tempDegree}
+                      onChange={(e) => setTempDegree(e.target.value)}
+                      onBlur={() => handleLiveUpdateCourse(lead.id, tempCourse, tempAcademicLevel, tempDegree)}
+                      className="w-full bg-white border border-teal-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-medium outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 shadow-xs"
+                      id={`degree-target-input-${lead.id}`}
+                    />
+                  </div>
+                </div>
+
+                {/* Quick 1-Click Courses Badges */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-teal-100/70">
+                  <span className="text-[9px] font-black uppercase text-teal-700 mr-1">Popular Courses:</span>
+                  {coursesList.slice(0, 8).map((c) => (
+                    <div key={c} className="inline-flex items-center group">
+                      <button
+                        type="button"
+                        onClick={() => handleLiveUpdateCourse(lead.id, c, tempAcademicLevel, tempDegree)}
+                        className={`px-2 py-1 rounded-l-lg text-[10px] font-bold transition-all cursor-pointer truncate max-w-[140px] ${
+                          tempCourse.toLowerCase() === c.toLowerCase()
+                            ? 'bg-teal-600 text-white shadow-xs'
+                            : 'bg-white text-teal-800 border border-teal-200 hover:bg-teal-50'
+                        }`}
+                        title={`Set course to ${c}`}
+                      >
+                        {c}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Remove course "${c}" from active list?`)) {
+                            removeCourseFromPool(c);
+                          }
+                        }}
+                        className={`px-1 py-1 rounded-r-lg border-y border-r text-[10px] transition-all cursor-pointer ${
+                          tempCourse.toLowerCase() === c.toLowerCase()
+                            ? 'bg-teal-700 text-teal-200 hover:text-white border-teal-800'
+                            : 'bg-white text-slate-400 hover:text-rose-600 border-teal-200 hover:bg-rose-50'
+                        }`}
+                        title={`Remove "${c}" from courses roster`}
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setIsManageCoursesOpen(true)}
+                    className="px-2 py-1 rounded-lg text-[10px] font-bold text-teal-700 bg-teal-100 hover:bg-teal-200 border border-teal-300 transition-colors flex items-center gap-1 ml-1 cursor-pointer"
+                    title="Open Course Management Panel"
+                  >
+                    <BookOpen className="w-3 h-3" />
+                    <span>Manage All ({coursesList.length})</span>
+                  </button>
                 </div>
               </div>
 
@@ -912,49 +1532,41 @@ export default function AdminLeads({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Header Block */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 border-b border-slate-100 pb-6" id="admin-header-block">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4 border-b border-slate-100 pb-6" id="admin-header-block">
           <div>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight flex items-center gap-2" id="admin-title">
               <FileSpreadsheet className="w-8 h-8 text-teal-500" />
               Lead Conversion & CRM Workspace
             </h2>
             <p className="text-sm text-slate-400 mt-1" id="admin-subtitle">
-              Live counselor assignment, document vault, disposition tracking, and direct WhatsApp outreach.
+              Live counselor assignment, source tracking, course management, document vault, and WhatsApp outreach.
             </p>
           </div>
           
-          <div className="flex items-center flex-wrap gap-3 self-start sm:self-center" id="admin-header-actions">
-            {onRefresh && (
-              <button
-                onClick={onRefresh}
-                disabled={isRefreshing}
-                className="flex items-center gap-2 text-xs font-bold px-4 py-2.5 rounded-xl border border-sky-200 hover:border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100 transition-all cursor-pointer shadow-sm active:scale-[0.98] disabled:opacity-75"
-                id="admin-refresh-btn"
-                title="Force sync leads database with Supabase Postgres"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-sky-600' : ''}`} />
-                <span>{isRefreshing ? 'Syncing...' : 'Sync Live'}</span>
-              </button>
-            )}
+          <div className="flex items-center flex-wrap gap-2.5 self-start lg:self-center" id="admin-header-actions">
+            {/* Add Lead Primary Action Button */}
+            <button
+              type="button"
+              onClick={() => setIsAddLeadModalOpen(true)}
+              className="flex items-center gap-2 text-xs font-black px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white shadow-md shadow-teal-600/20 transition-all cursor-pointer active:scale-95"
+              id="admin-add-lead-top-btn"
+              title="Add a new lead directly into CRM"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>+ Add Lead</span>
+            </button>
 
-            {userRole === 'admin' ? (
-              <button
-                onClick={onClearLeads}
-                disabled={leads.length === 0}
-                className={`text-xs font-semibold px-4 py-2.5 rounded-xl transition-colors cursor-pointer ${
-                  leads.length > 0 
-                    ? 'bg-red-50 text-red-700 hover:bg-red-100 border border-red-200/60' 
-                    : 'bg-slate-50 text-slate-300 border border-slate-100 cursor-not-allowed'
-                }`}
-                id="admin-clear-btn"
-              >
-                Clear All Leads
-              </button>
-            ) : (
-              <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl font-bold shrink-0 flex items-center gap-1.5 shadow-2xs">
-                <span>🔒 Counsellor View (Deletion Disabled • Contact Masked)</span>
-              </div>
-            )}
+            {/* Bulk Lead Upload Button (Excel / CSV / XLS) */}
+            <button
+              type="button"
+              onClick={() => setIsBulkUploadModalOpen(true)}
+              className="flex items-center gap-2 text-xs font-black px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white shadow-md shadow-emerald-700/20 transition-all cursor-pointer active:scale-95"
+              id="admin-bulk-upload-top-btn"
+              title="Upload leads in bulk using Excel (.xlsx, .xls) or CSV files"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+              <span>📥 Bulk Upload (Excel/CSV)</span>
+            </button>
           </div>
         </div>
 
@@ -1092,7 +1704,7 @@ export default function AdminLeads({
           </div>
 
           {/* Filters Group */}
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             {/* Filter by Counselor */}
             <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
               <UserCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
@@ -1110,17 +1722,37 @@ export default function AdminLeads({
               </select>
             </div>
 
-            {/* Manage Counselors Action Button */}
-            <button
-              type="button"
-              onClick={() => setIsManageCounselorsOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-              title="Add or Remove Counselor Names"
-              id="admin-manage-counselors-btn"
-            >
-              <Users className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Manage Counselors</span>
-            </button>
+            {/* Filter by Source */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
+              <Globe className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+                className="bg-transparent text-xs text-slate-700 font-extrabold outline-none cursor-pointer"
+                id="admin-source-filter-select"
+              >
+                <option value="All">All Sources</option>
+                {sourcesList.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filter by Course / Stream */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm">
+              <GraduationCap className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+              <select
+                value={courseFilter}
+                onChange={(e) => setCourseFilter(e.target.value)}
+                className="bg-transparent text-xs text-slate-700 font-extrabold outline-none cursor-pointer max-w-[150px] truncate"
+                id="admin-course-filter-select"
+              >
+                <option value="All">All Courses / Streams</option>
+                {coursesList.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
 
             {/* Filter by Category */}
             <select
@@ -1172,6 +1804,26 @@ export default function AdminLeads({
                 </button>
               )}
             </div>
+
+            {/* Reset All Filters Button if active */}
+            {(searchTerm || counsellorFilter !== 'All' || sourceFilter !== 'All' || courseFilter !== 'All' || categoryFilter !== 'All' || startDate || endDate) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setCounsellorFilter('All');
+                  setSourceFilter('All');
+                  setCourseFilter('All');
+                  setCategoryFilter('All');
+                  setStartDate('');
+                  setEndDate('');
+                }}
+                className="px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                title="Reset all active filters"
+              >
+                Reset Filters
+              </button>
+            )}
           </div>
         </div>
 
@@ -1830,6 +2482,681 @@ export default function AdminLeads({
               </div>
             </div>
           </div>
+        )}
+
+        {/* Manage Sources Modal */}
+        {isManageSourcesOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fade-in" id="manage-sources-modal-backdrop">
+            <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-100 animate-scale-up" id="manage-sources-modal-container">
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-sky-950 via-sky-900 to-slate-900 p-6 text-white flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10">
+                    <Globe className="w-6 h-6 text-sky-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black tracking-tight flex items-center gap-2">
+                      Manage Acquisition Sources
+                    </h3>
+                    <p className="text-xs text-sky-200 mt-0.5">
+                      Configure lead channels (Website, Referrals, Walk-ins, Ads, etc.)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsManageSourcesOpen(false);
+                    setSourceToDelete(null);
+                  }}
+                  className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Add Source Section */}
+                <div className="bg-sky-50/60 border border-sky-100 rounded-2xl p-4">
+                  <label className="text-xs font-black text-sky-950 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
+                    <PlusCircle className="w-4 h-4 text-sky-600" />
+                    Add New Lead Source
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. LinkedIn Ads, Education Fair, Partner University..."
+                      value={manageSourceInput}
+                      onChange={(e) => setManageSourceInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (manageSourceInput.trim()) {
+                            addSourceToPool(manageSourceInput);
+                            setManageSourceInput('');
+                          }
+                        }
+                      }}
+                      className="flex-1 bg-white border border-sky-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 shadow-2xs"
+                      id="modal-add-source-input"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (manageSourceInput.trim()) {
+                          addSourceToPool(manageSourceInput);
+                          setManageSourceInput('');
+                        }
+                      }}
+                      disabled={!manageSourceInput.trim()}
+                      className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 shadow-xs flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Current Active Sources List */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Tag className="w-4 h-4 text-sky-600" />
+                      Configured Sources ({sourcesList.length})
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-semibold">
+                      Click Remove to delete from list
+                    </span>
+                  </div>
+
+                  {sourcesList.length === 0 ? (
+                    <div className="text-center p-8 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                      <Globe className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-slate-600">No sources currently configured</p>
+                      <p className="text-[11px] text-slate-400 mt-1">Add a source above or reset to default list.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden max-h-64 overflow-y-auto">
+                      {sourcesList.map((source) => {
+                        const count = leads.filter(l => (l.source || 'Website').toLowerCase() === source.toLowerCase()).length;
+                        const isConfirming = sourceToDelete === source;
+                        const isWebsite = source.toLowerCase() === 'website';
+
+                        return (
+                          <div key={source} className="p-3.5 bg-white hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-black text-xs shrink-0 border border-sky-200">
+                                <Globe className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <p className="text-xs font-black text-slate-800 truncate">{source}</p>
+                                  {isWebsite && (
+                                    <span className="text-[9px] font-black uppercase px-1.5 py-0.5 bg-teal-100 text-teal-800 rounded">
+                                      Default
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-slate-400 font-semibold">
+                                  {count === 1 ? '1 lead associated' : `${count} leads associated`}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {isConfirming ? (
+                                <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 p-1.5 rounded-xl">
+                                  <span className="text-[10px] font-bold text-rose-700 px-1">Delete "{source}"?</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      removeSourceFromPool(source, false);
+                                      setSourceToDelete(null);
+                                    }}
+                                    className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-black cursor-pointer transition-colors shadow-2xs"
+                                    title="Remove from roster"
+                                  >
+                                    Remove
+                                  </button>
+                                  {count > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        removeSourceFromPool(source, true);
+                                        setSourceToDelete(null);
+                                      }}
+                                      className="px-2 py-1 bg-rose-800 hover:bg-rose-900 text-white rounded-lg text-[10px] font-black cursor-pointer transition-colors shadow-2xs"
+                                      title={`Reset all ${count} leads to Website`}
+                                    >
+                                      Reset Leads to Website
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setSourceToDelete(null)}
+                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={isWebsite}
+                                  onClick={() => setSourceToDelete(source)}
+                                  className={`px-2.5 py-1.5 text-xs font-bold rounded-xl transition-colors flex items-center gap-1 cursor-pointer ${
+                                    isWebsite 
+                                      ? 'text-slate-300 bg-slate-50 border border-slate-100 cursor-not-allowed'
+                                      : 'text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80'
+                                  }`}
+                                  title={isWebsite ? 'Default Website source cannot be deleted' : `Remove ${source}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Remove</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Actions */}
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={resetSourcesToDefault}
+                    className="text-xs font-bold text-slate-500 hover:text-sky-600 hover:bg-slate-50 px-3 py-2 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-slate-200 flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Reset to Defaults</span>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsManageSourcesOpen(false);
+                      setSourceToDelete(null);
+                    }}
+                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black cursor-pointer transition-all shadow-sm"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Manage Courses Modal */}
+        {isManageCoursesOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fade-in" id="manage-courses-modal-backdrop">
+            <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-100 animate-scale-up" id="manage-courses-modal-container">
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-teal-950 via-teal-900 to-slate-900 p-6 text-white flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10">
+                    <GraduationCap className="w-6 h-6 text-teal-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black tracking-tight flex items-center gap-2">
+                      Manage Courses & Streams
+                    </h3>
+                    <p className="text-xs text-teal-200 mt-0.5">
+                      Configure academic disciplines, majors, and study fields
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsManageCoursesOpen(false);
+                    setCourseToDelete(null);
+                  }}
+                  className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Add Course Section */}
+                <div className="bg-teal-50/60 border border-teal-100 rounded-2xl p-4">
+                  <label className="text-xs font-black text-teal-950 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
+                    <PlusCircle className="w-4 h-4 text-teal-600" />
+                    Add New Course / Stream
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. Artificial Intelligence, Biotechnology, Nursing..."
+                      value={manageCourseInput}
+                      onChange={(e) => setManageCourseInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (manageCourseInput.trim()) {
+                            addCourseToPool(manageCourseInput);
+                            setManageCourseInput('');
+                          }
+                        }
+                      }}
+                      className="flex-1 bg-white border border-teal-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 shadow-2xs"
+                      id="modal-add-course-input"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (manageCourseInput.trim()) {
+                          addCourseToPool(manageCourseInput);
+                          setManageCourseInput('');
+                        }
+                      }}
+                      disabled={!manageCourseInput.trim()}
+                      className="px-4 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 shadow-xs flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Current Active Courses List */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <BookOpen className="w-4 h-4 text-teal-600" />
+                      Configured Courses ({coursesList.length})
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-semibold">
+                      Click Remove to delete from list
+                    </span>
+                  </div>
+
+                  {coursesList.length === 0 ? (
+                    <div className="text-center p-8 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+                      <GraduationCap className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-slate-600">No courses currently configured</p>
+                      <p className="text-[11px] text-slate-400 mt-1">Add a course above or reset to default list.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden max-h-64 overflow-y-auto">
+                      {coursesList.map((course) => {
+                        const count = leads.filter(l => (l.streamOfInterest || '').toLowerCase() === course.toLowerCase()).length;
+                        const isConfirming = courseToDelete === course;
+
+                        return (
+                          <div key={course} className="p-3.5 bg-white hover:bg-slate-50/80 transition-colors flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center font-black text-xs shrink-0 border border-teal-200">
+                                <GraduationCap className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs font-black text-slate-800 truncate">{course}</p>
+                                <p className="text-[10px] text-slate-400 font-semibold">
+                                  {count === 1 ? '1 student enrolled' : `${count} students interested`}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {isConfirming ? (
+                                <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 p-1.5 rounded-xl">
+                                  <span className="text-[10px] font-bold text-rose-700 px-1">Delete "{course}"?</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      removeCourseFromPool(course);
+                                      setCourseToDelete(null);
+                                    }}
+                                    className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-black cursor-pointer transition-colors shadow-2xs"
+                                    title="Remove from course list"
+                                  >
+                                    Remove
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setCourseToDelete(null)}
+                                    className="p-1 text-slate-400 hover:text-slate-600 rounded-md cursor-pointer"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setCourseToDelete(course)}
+                                  className="px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/80 rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
+                                  title={`Remove ${course}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Remove</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Actions */}
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={resetCoursesToDefault}
+                    className="text-xs font-bold text-slate-500 hover:text-teal-600 hover:bg-slate-50 px-3 py-2 rounded-xl transition-colors cursor-pointer border border-transparent hover:border-slate-200 flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Reset to Defaults</span>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsManageCoursesOpen(false);
+                      setCourseToDelete(null);
+                    }}
+                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black cursor-pointer transition-all shadow-sm"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add New Lead Modal */}
+        {isAddLeadModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fade-in" id="add-lead-modal-backdrop">
+            <div className="bg-white rounded-3xl max-w-2xl w-full overflow-hidden shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col animate-scale-up" id="add-lead-modal-container">
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-teal-950 via-teal-900 to-slate-900 p-6 text-white flex items-start justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10">
+                    <PlusCircle className="w-6 h-6 text-teal-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black tracking-tight flex items-center gap-2">
+                      Create New Student Lead
+                    </h3>
+                    <p className="text-xs text-teal-200 mt-0.5">
+                      Direct CRM entry with source tracking & counselor assignment
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAddLeadModalOpen(false)}
+                  className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Form Scrollable Body */}
+              <form onSubmit={handleAddLeadSubmit} className="p-6 space-y-5 overflow-y-auto flex-1">
+                {/* Switch to Bulk Upload Prompt Banner */}
+                <div className="bg-teal-50 border border-teal-200/80 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <FileSpreadsheet className="w-5 h-5 text-teal-700 shrink-0" />
+                    <div>
+                      <p className="font-extrabold text-teal-950">Have multiple leads in a file?</p>
+                      <p className="text-[11px] text-teal-700 font-medium">Upload Excel (.xlsx) or CSV files directly to import all leads at once.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddLeadModalOpen(false);
+                      setIsBulkUploadModalOpen(true);
+                    }}
+                    className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl font-black text-[11px] shrink-0 transition-colors shadow-2xs cursor-pointer"
+                  >
+                    Bulk Upload →
+                  </button>
+                </div>
+
+                {/* Basic Details Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                      Student Full Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Alex Johnson"
+                      value={newLeadName}
+                      onChange={(e) => setNewLeadName(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                      Phone Number (WhatsApp) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="e.g. +49 152 1234567"
+                      value={newLeadPhone}
+                      onChange={(e) => setNewLeadPhone(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                      Email Address <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="e.g. student@example.com"
+                      value={newLeadEmail}
+                      onChange={(e) => setNewLeadEmail(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                      Preferred Study Country / Location
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Germany, UK, USA, Canada"
+                      value={newLeadLocation}
+                      onChange={(e) => setNewLeadLocation(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Source & Course Section */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                  {/* Lead Acquisition Source (Defaults to Website) */}
+                  <div className="bg-sky-50/50 border border-sky-100 rounded-2xl p-3.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-black text-sky-950 flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-sky-600" />
+                        Acquisition Source (Default: Website)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setIsManageSourcesOpen(true)}
+                        className="text-[10px] font-bold text-sky-700 hover:underline"
+                      >
+                        Manage
+                      </button>
+                    </div>
+                    <select
+                      value={newLeadSource}
+                      onChange={(e) => setNewLeadSource(e.target.value)}
+                      className="w-full bg-white border border-sky-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-black outline-none focus:ring-2 focus:ring-sky-500/20"
+                    >
+                      {sourcesList.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Course & Stream of Interest */}
+                  <div className="bg-teal-50/50 border border-teal-100 rounded-2xl p-3.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-black text-teal-950 flex items-center gap-1.5">
+                        <GraduationCap className="w-3.5 h-3.5 text-teal-600" />
+                        Course / Academic Stream
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setIsManageCoursesOpen(true)}
+                        className="text-[10px] font-bold text-teal-700 hover:underline"
+                      >
+                        Manage
+                      </button>
+                    </div>
+                    <select
+                      value={newLeadCourse}
+                      onChange={(e) => setNewLeadCourse(e.target.value)}
+                      className="w-full bg-white border border-teal-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-black outline-none focus:ring-2 focus:ring-teal-500/20"
+                    >
+                      {coursesList.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Academic Level & Target Degree */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                      Academic Level
+                    </label>
+                    <select
+                      value={newLeadAcademicLevel}
+                      onChange={(e) => setNewLeadAcademicLevel(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20"
+                    >
+                      {['Undergraduate', 'Postgraduate / Masters', 'Doctoral / PhD', 'Diploma / Certificate', 'Foundation / Preparatory'].map(lvl => (
+                        <option key={lvl} value={lvl}>{lvl}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                      Specific Target Degree / Goal
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. M.Sc. Data Science & AI"
+                      value={newLeadDegree}
+                      onChange={(e) => setNewLeadDegree(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20"
+                    />
+                  </div>
+                </div>
+
+                {/* Counselor Assignment & Initial Disposition */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-700 block mb-1.5 flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                      Assign Counselor
+                    </label>
+                    <select
+                      value={newLeadCounselor}
+                      onChange={(e) => setNewLeadCounselor(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20"
+                    >
+                      <option value="">-- Unassigned (Assign Later) --</option>
+                      {counsellorsList.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                      Initial Disposition
+                    </label>
+                    <select
+                      value={newLeadDisposition}
+                      onChange={(e) => setNewLeadDisposition(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold outline-none focus:ring-2 focus:ring-teal-500/20"
+                    >
+                      {Object.keys(DISPOSITIONS_MAP).map(disp => (
+                        <option key={disp} value={disp}>{disp}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Notes & Remarks */}
+                <div>
+                  <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                    Initial Counselor Notes / Background
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Enter initial student inquiry details, qualifications, or counselor remarks..."
+                    value={newLeadNotes}
+                    onChange={(e) => setNewLeadNotes(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-800 outline-none focus:ring-2 focus:ring-teal-500/20 resize-none font-medium"
+                  />
+                </div>
+
+                {/* Modal Actions */}
+                <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddLeadModalOpen(false)}
+                    className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingNewLead || !newLeadName.trim() || !newLeadPhone.trim()}
+                    className="px-6 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-md shadow-teal-600/20 transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    {isSubmittingNewLead ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Creating Lead...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Create Student Lead</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Bulk Lead Upload Modal */}
+        {isBulkUploadModalOpen && (
+          <BulkLeadUploadModal
+            isOpen={isBulkUploadModalOpen}
+            onClose={() => setIsBulkUploadModalOpen(false)}
+            onBulkAddLeads={onBulkAddLeads || (async () => ({ success: false, count: 0 }))}
+            counsellorsList={counsellorsList}
+            sourcesList={sourcesList}
+            coursesList={coursesList}
+            userRole={userRole}
+          />
         )}
 
       </div>

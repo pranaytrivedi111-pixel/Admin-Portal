@@ -28,6 +28,21 @@ export interface LeadDocument {
   category?: 'Passport' | 'Academic Marksheet' | 'Degree Transcript' | 'Language Test' | 'SOP & Resume' | 'Financial & Bank' | 'Offer Letter / Visa' | 'General';
 }
 
+export type LeadSource = 
+  | 'Website'
+  | 'Google Ads'
+  | 'Meta Ads'
+  | 'Walk-in'
+  | 'Referral'
+  | 'Cold Call'
+  | 'Education Fair'
+  | 'WhatsApp'
+  | 'Organic Search'
+  | 'Direct Apply'
+  | 'Eligibility Calculator'
+  | 'Agent / Partner'
+  | string;
+
 export interface Lead {
   id: string;
   name: string;
@@ -39,7 +54,7 @@ export interface Lead {
   score: string; // e.g. "85%"
   budget: string; // fee per year
   locationPreference: string;
-  source: 'direct_apply' | 'eligibility_calculator' | 'ai_chat' | 'callback' | 'contact' | 'engagement_hub';
+  source: LeadSource;
   timestamp: string;
   status: 'New' | 'Contacted' | 'In Progress' | 'Enrolled' | 'Rejected';
   notes?: string;

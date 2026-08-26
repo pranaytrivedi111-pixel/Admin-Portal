@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Lock, AlertCircle, LogOut, CheckCircle, Database 
+  Lock, AlertCircle, LogOut, CheckCircle, Database, GraduationCap
 } from 'lucide-react';
 import { Lead } from './types';
-import logoImg from './assets/images/enrol_logo_1784056705876.jpg';
 import AdminLeads from './components/AdminLeads';
 
 // Configurable API base URL to allow separate hosting of the admin portal
@@ -78,8 +77,8 @@ export default function App() {
             
             // Seamlessly preserve local hydrated document dataUrls
             let finalDocs: LeadDocument[] = [];
-            if (incDocs.length > 0) {
-              finalDocs = incDocs.map(incDoc => {
+            if (Array.isArray(incoming.documents)) {
+              finalDocs = incoming.documents.map(incDoc => {
                 const existing = prevDocs.find(p => p.id === incDoc.id);
                 return {
                   ...incDoc,
@@ -239,7 +238,110 @@ export default function App() {
     showToast('Logged out successfully');
   };
 
-  // API operations matching App.tsx perfectly
+  const handleAddLead = async (newLeadData: Partial<Lead>): Promise<Lead | null> => {
+    const finalLead: Lead = {
+      id: newLeadData.id || `lead-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      name: newLeadData.name || 'New Student',
+      email: newLeadData.email || '',
+      phone: newLeadData.phone || '',
+      academicLevel: newLeadData.academicLevel || 'Undergraduate',
+      streamOfInterest: newLeadData.streamOfInterest || 'Computer Science & IT',
+      degreeOfInterest: newLeadData.degreeOfInterest || '',
+      score: newLeadData.score || '',
+      budget: newLeadData.budget || '',
+      locationPreference: newLeadData.locationPreference || '',
+      source: newLeadData.source || 'Website',
+      timestamp: new Date().toISOString(),
+      status: newLeadData.status || 'New',
+      disposition: newLeadData.disposition || 'New Lead',
+      subDisposition: newLeadData.subDisposition || 'NA',
+      priority: newLeadData.priority || 3,
+      counsellor: newLeadData.counsellor || '',
+      notes: newLeadData.notes || '',
+      remarks: newLeadData.remarks || '',
+      documents: newLeadData.documents || []
+    };
+
+    setLeads(prev => [finalLead, ...prev]);
+
+    try {
+      const res = await fetch(getApiUrl('/api/leads'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(finalLead)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.lead) {
+          setLeads(prev => prev.map(l => l.id === finalLead.id ? { ...l, ...data.lead } : l));
+        }
+        showToast(`Lead for ${finalLead.name} created successfully!`);
+        return data.lead || finalLead;
+      }
+    } catch (err) {
+      console.error('Failed to create lead on server:', err);
+    }
+    showToast(`Lead for ${finalLead.name} created!`);
+    return finalLead;
+  };
+
+  const handleBulkAddLeads = async (newLeads: Partial<Lead>[]): Promise<{ success: boolean; count: number }> => {
+    if (!newLeads || newLeads.length === 0) return { success: false, count: 0 };
+    
+    try {
+      const res = await fetch(getApiUrl('/api/leads/bulk'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leads: newLeads })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const freshRes = await fetch(getApiUrl('/api/leads'));
+        if (freshRes.ok) {
+          const freshData = await freshRes.json();
+          if (Array.isArray(freshData.leads)) {
+            setLeads(freshData.leads);
+            safeSaveOfflineLeads(freshData.leads);
+          }
+        }
+        showToast(`Successfully imported ${data.count || newLeads.length} student leads in bulk!`);
+        return { success: true, count: data.count || newLeads.length };
+      }
+    } catch (err) {
+      console.error('Failed to import leads in bulk via API:', err);
+    }
+
+    // Fallback if backend API is unreachable
+    const timestamp = new Date().toISOString();
+    const fallbackLeads: Lead[] = newLeads.map((item, idx) => ({
+      id: item.id || `lead-bulk-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      name: item.name || `Imported Student #${idx + 1}`,
+      email: item.email || '',
+      phone: item.phone || '',
+      academicLevel: item.academicLevel || 'Undergraduate',
+      streamOfInterest: item.streamOfInterest || 'Computer Science & IT',
+      degreeOfInterest: item.degreeOfInterest || '',
+      score: item.score || '',
+      budget: item.budget || '',
+      locationPreference: item.locationPreference || '',
+      source: item.source || 'Excel Import',
+      timestamp: item.timestamp || timestamp,
+      status: item.status || 'New',
+      disposition: item.disposition || 'New Lead',
+      subDisposition: item.subDisposition || 'NA',
+      priority: item.priority || 1,
+      counsellor: item.counsellor || '',
+      notes: item.notes || '',
+      remarks: item.remarks || '',
+      documents: item.documents || []
+    }));
+
+    setLeads(prev => [...fallbackLeads, ...prev]);
+    safeSaveOfflineLeads([...fallbackLeads, ...leads]);
+    showToast(`Imported ${fallbackLeads.length} student leads locally!`);
+    return { success: true, count: fallbackLeads.length };
+  };
+
   const handleUpdateLeadStatus = async (leadId: string, newStatus: Lead['status']) => {
     setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: newStatus } : l));
 
@@ -393,18 +495,18 @@ export default function App() {
       )}
 
       {/* Header Panel */}
-      <header className={`${isAdminLoggedIn ? 'bg-white border-b border-slate-200 text-slate-800' : 'bg-slate-950 border-b border-slate-800'} py-4 px-6 flex justify-between items-center transition-colors duration-300 shadow-sm`}>
-        <div className="flex items-center gap-4">
-          <img 
-            src={logoImg} 
-            alt="Enrol Overseas" 
-            className="h-14 sm:h-20 md:h-24 w-auto rounded-xl object-contain"
-            referrerPolicy="no-referrer"
-          />
-          <div className="border-l border-slate-200 dark:border-slate-800 h-10 mx-1"></div>
+      <header className={`${isAdminLoggedIn ? 'bg-white border-b border-slate-200 text-slate-800' : 'bg-slate-950 border-b border-slate-800'} py-3 px-4 sm:px-6 flex justify-between items-center transition-colors duration-300 shadow-xs`}>
+        <div className="flex items-center gap-3 sm:gap-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-teal-600 flex items-center justify-center text-white shadow-sm font-black shrink-0">
+            <GraduationCap className="w-5 h-5 text-white" />
+          </div>
           <div>
-            <h1 className={`text-sm sm:text-base font-black tracking-wider uppercase transition-colors duration-300 ${isAdminLoggedIn ? 'text-slate-800' : 'text-white'}`}>enrol overseas</h1>
-            <p className="text-[10px] sm:text-[11px] font-bold text-sky-500 uppercase tracking-widest mt-0.5">crm leads dashboard</p>
+            <h1 className={`text-xs sm:text-base font-black tracking-wider uppercase transition-colors duration-300 ${isAdminLoggedIn ? 'text-slate-800' : 'text-white'}`}>
+              enrol overseas
+            </h1>
+            <p className="text-[9px] sm:text-[11px] font-bold text-teal-600 uppercase tracking-widest mt-0.5">
+              crm leads dashboard
+            </p>
           </div>
         </div>
 
@@ -442,15 +544,12 @@ export default function App() {
           <div className="p-6 md:p-8 w-full">
             <div className="max-w-md w-full mx-auto my-12" id="standalone-login-box">
               <div className="bg-slate-950 rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
-                <div className="bg-gradient-to-r from-sky-800 to-sky-600 p-8 text-white text-center flex flex-col items-center">
-                  <img 
-                    src={logoImg} 
-                    alt="Enrol Overseas Logo" 
-                    className="max-w-[260px] sm:max-w-[300px] w-full h-auto object-contain rounded-2xl shadow-xl mb-4"
-                    referrerPolicy="no-referrer"
-                  />
+                <div className="bg-gradient-to-r from-teal-900 via-sky-900 to-slate-900 p-8 text-white text-center flex flex-col items-center">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-sky-500 to-teal-500 text-white flex items-center justify-center mb-4 shadow-lg shadow-teal-900/40">
+                    <GraduationCap className="w-8 h-8 text-white" />
+                  </div>
                   <h3 className="text-xl font-black tracking-tight uppercase">crm staff login</h3>
-                  <p className="text-[11px] text-sky-100 mt-1.5 font-semibold">Authorized Advisor Portal</p>
+                  <p className="text-[11px] text-teal-200 mt-1.5 font-semibold">Authorized Advisor Portal</p>
                 </div>
                 
                 <form onSubmit={handleLoginSubmit} className="p-8 space-y-5">
@@ -526,6 +625,8 @@ export default function App() {
             ) : (
               <AdminLeads 
                 leads={leads}
+                onAddLead={handleAddLead}
+                onBulkAddLeads={handleBulkAddLeads}
                 onUpdateLeadStatus={handleUpdateLeadStatus}
                 onUpdateLeadDetails={handleUpdateLeadDetails}
                 onClearLeads={handleClearLeads}

@@ -67,7 +67,8 @@ async function check() {
     if (error) {
       console.error("Error fetching leads rows:", error);
     } else if (rows && rows.length > 0) {
-      console.log(`Found ${rows.length} rows in Supabase.`);
+      console.log(`Found ${rows.length} rows in Supabase. Row columns:`, Object.keys(rows[0]));
+      console.log('Sample row:', JSON.stringify(rows[0], null, 2));
       
       // Test assigning counsellor to lead 0
       const testLead = rows[0];

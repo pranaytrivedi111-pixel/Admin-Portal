@@ -8,6 +8,7 @@ import {
 import { Lead, LeadDocument } from '../types';
 import { saveDocToLocalDB, getDocFromLocalDB, deleteDocFromLocalDB } from '../utils/documentStorage';
 import { maskEmail, maskPhone } from '../utils/masking';
+import { getApiUrl } from '../utils/apiUrl';
 
 interface LeadDocumentVaultProps {
   lead: Lead;
@@ -138,19 +139,30 @@ export default function LeadDocumentVault({
   const isImageDoc = (doc: LeadDocument) => {
     const lowerName = (doc.name || '').toLowerCase();
     const lowerType = (doc.type || '').toLowerCase();
-    return lowerType.startsWith('image/') || lowerName.match(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico|heic)$/i);
+    const dataUrlPrefix = (doc.dataUrl || '').substring(0, 35).toLowerCase();
+    return (
+      lowerType.startsWith('image/') ||
+      dataUrlPrefix.startsWith('data:image/') ||
+      lowerName.match(/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico|heic|avif)$/i) !== null
+    );
   };
 
   const isPdfDoc = (doc: LeadDocument) => {
     const lowerName = (doc.name || '').toLowerCase();
     const lowerType = (doc.type || '').toLowerCase();
-    return lowerType === 'application/pdf' || lowerName.endsWith('.pdf');
+    const dataUrlPrefix = (doc.dataUrl || '').substring(0, 35).toLowerCase();
+    return (
+      lowerType === 'application/pdf' ||
+      lowerType.includes('pdf') ||
+      dataUrlPrefix.startsWith('data:application/pdf') ||
+      lowerName.endsWith('.pdf')
+    );
   };
 
   const isTextDoc = (doc: LeadDocument) => {
     const lowerName = (doc.name || '').toLowerCase();
     const lowerType = (doc.type || '').toLowerCase();
-    return lowerType.startsWith('text/') || lowerName.match(/\.(txt|csv|json|log|md|xml)$/i);
+    return lowerType.startsWith('text/') || lowerName.match(/\.(txt|csv|json|log|md|xml)$/i) !== null;
   };
 
   const getFileIcon = (fileName: string, type: string) => {
@@ -187,17 +199,46 @@ export default function LeadDocumentVault({
       const file = files[i];
       try {
         const dataUrl = await readFileAsDataURL(file);
-        const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
         
-        // Save large binary in browser IndexedDB
-        await saveDocToLocalDB(docId, dataUrl);
+        // 1. Upload to live backend document storage API
+        try {
+          const res = await fetch(getApiUrl(`/api/leads/${lead.id}/documents`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: file.name,
+              size: file.size,
+              type: file.type || getExtensionMime(file.name),
+              dataUrl,
+              category: selectedCategory || 'General'
+            })
+          });
 
+          if (res.ok) {
+            const data = await res.json();
+            if (data.document) {
+              await saveDocToLocalDB(data.document.id, dataUrl);
+              newDocs.push({
+                ...data.document,
+                dataUrl
+              });
+              continue;
+            }
+          }
+        } catch (serverErr) {
+          console.warn('Server upload notice, caching locally:', serverErr);
+        }
+
+        // Fallback if offline or server endpoint responded with error
+        const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        await saveDocToLocalDB(docId, dataUrl);
         const doc: LeadDocument = {
           id: docId,
           name: file.name,
           size: file.size,
           type: file.type || getExtensionMime(file.name),
           dataUrl,
+          url: `/api/documents/${docId}`,
           uploadedAt: new Date().toISOString(),
           category: selectedCategory || 'General'
         };
@@ -255,6 +296,15 @@ export default function LeadDocumentVault({
       const updatedDocs = currentList.filter(d => d.id !== docId);
       setHydratedDocs(updatedDocs);
       await deleteDocFromLocalDB(docId);
+
+      try {
+        await fetch(getApiUrl(`/api/leads/${lead.id}/documents/${docId}`), {
+          method: 'DELETE'
+        });
+      } catch (e) {
+        console.warn('Error deleting document on server:', e);
+      }
+
       await onUpdateLeadDocuments(lead.id, updatedDocs);
       if (previewDoc?.id === docId) {
         setPreviewDoc(null);
@@ -264,58 +314,60 @@ export default function LeadDocumentVault({
 
   const handleDownloadDocument = async (doc: LeadDocument) => {
     let dataToUse = previewBlobUrl || doc.dataUrl;
-    if (!dataToUse) {
+    if (!dataToUse || dataToUse.startsWith('/api/')) {
       const cachedData = await getDocFromLocalDB(doc.id);
       if (cachedData) {
         dataToUse = cachedData;
+      } else {
+        const directUrl = getApiUrl(doc.url || `/api/documents/${doc.id}`);
+        const link = document.createElement('a');
+        link.href = directUrl;
+        link.download = doc.name;
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
       }
     }
-    if (!dataToUse) {
-      alert('Document data is still synchronizing. Please try again in a moment.');
-      return;
+    if (dataToUse) {
+      const link = document.createElement('a');
+      link.href = dataToUse;
+      link.download = doc.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
-    const link = document.createElement('a');
-    link.href = dataToUse;
-    link.download = doc.name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   const handleOpenInNewWindow = async (doc: LeadDocument) => {
-    let urlToOpen = previewBlobUrl || doc.dataUrl;
-    if (!urlToOpen) {
+    let urlToOpen = '';
+    let rawData = doc.dataUrl;
+    if (!rawData || rawData.startsWith('/api/')) {
       const cachedData = await getDocFromLocalDB(doc.id);
-      if (cachedData) {
-        urlToOpen = cachedData;
-      }
+      if (cachedData) rawData = cachedData;
     }
-    if (urlToOpen) {
-      const win = window.open('', '_blank');
-      if (win) {
-        win.document.write(`
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta charset="UTF-8" />
-              <title>${doc.name} - Enrol Overseas Viewer</title>
-              <style>
-                body { margin: 0; padding: 0; background: #0f172a; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif; }
-                img { max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.5); }
-                iframe { width: 100vw; height: 100vh; border: none; }
-                .btn { color: white; font-weight: 700; text-decoration: none; padding: 14px 28px; background: #0d9488; border-radius: 12px; font-size: 15px; }
-              </style>
-            </head>
-            <body>
-              ${isImageDoc(doc) ? `<img src="${urlToOpen}" alt="${doc.name}" />` : 
-                isPdfDoc(doc) ? `<iframe src="${urlToOpen}"></iframe>` :
-                `<a href="${urlToOpen}" download="${doc.name}" class="btn">Download ${doc.name}</a>`}
-            </body>
-          </html>
-        `);
-        win.document.close();
+
+    if (rawData && rawData.startsWith('data:')) {
+      try {
+        const arr = rawData.split(',');
+        const mimeMatch = arr[0].match(/:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : (doc.type || 'application/octet-stream');
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        urlToOpen = URL.createObjectURL(blob);
+      } catch (e) {
+        urlToOpen = rawData;
       }
+    } else {
+      urlToOpen = doc.url ? getApiUrl(doc.url) : getApiUrl(`/api/documents/${doc.id}`);
     }
+    window.open(urlToOpen, '_blank');
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -339,10 +391,13 @@ export default function LeadDocumentVault({
 
   const openDocumentViewer = async (doc: LeadDocument) => {
     let targetDoc = { ...doc };
-    if (!targetDoc.dataUrl) {
+    if (!targetDoc.dataUrl || targetDoc.dataUrl === '' || targetDoc.dataUrl.startsWith('/api/')) {
       const cachedData = await getDocFromLocalDB(doc.id);
       if (cachedData) {
         targetDoc.dataUrl = cachedData;
+      } else {
+        const liveDocUrl = getApiUrl(doc.url || `/api/documents/${doc.id}`);
+        targetDoc.dataUrl = liveDocUrl;
       }
     }
     setPreviewDoc(targetDoc);
@@ -481,9 +536,9 @@ export default function LeadDocumentVault({
                       className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-center shrink-0 overflow-hidden cursor-pointer group-hover:ring-2 group-hover:ring-teal-400 transition-all relative"
                       title="Click to preview file"
                     >
-                      {isImage && doc.dataUrl ? (
+                      {isImage && (doc.dataUrl || doc.url) ? (
                         <img 
-                          src={doc.dataUrl} 
+                          src={doc.dataUrl && doc.dataUrl.startsWith('data:') ? doc.dataUrl : getApiUrl(doc.url || `/api/documents/${doc.id}`)} 
                           alt={doc.name}
                           className="w-full h-full object-cover"
                           referrerPolicy="no-referrer"
@@ -658,111 +713,116 @@ export default function LeadDocumentVault({
 
             {/* Modal Body / Viewer Canvas */}
             <div className="p-4 sm:p-6 flex-1 overflow-auto bg-slate-900/90 flex items-center justify-center min-h-[360px] max-h-[72vh] relative select-none">
-              
-              {/* IMAGE VIEWER */}
-              {isImageDoc(previewDoc) ? (
-                <div className="w-full h-full flex items-center justify-center overflow-auto p-4">
-                  {previewBlobUrl || previewDoc.dataUrl ? (
-                    <img
-                      src={previewBlobUrl || previewDoc.dataUrl}
-                      alt={previewDoc.name}
-                      style={{
-                        transform: `scale(${zoomLevel}) rotate(${rotation}deg)`,
-                        transition: 'transform 0.2s ease-out'
-                      }}
-                      className="max-h-[64vh] max-w-full object-contain rounded-xl shadow-2xl transition-all"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="text-white text-center">
-                      <AlertCircle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
-                      <p className="text-xs font-bold">Image data is loading...</p>
-                    </div>
-                  )}
-                </div>
-              ) : 
-              
-              /* PDF VIEWER */
-              isPdfDoc(previewDoc) ? (
-                <div className="w-full h-full flex flex-col items-center justify-center">
-                  {previewBlobUrl || previewDoc.dataUrl ? (
-                    <div className="w-full h-full flex flex-col">
-                      <object
-                        data={previewBlobUrl || previewDoc.dataUrl}
-                        type="application/pdf"
-                        className="w-full h-[62vh] rounded-xl bg-white shadow-lg border border-slate-700"
-                      >
-                        <iframe
-                          src={previewBlobUrl || previewDoc.dataUrl}
-                          title={previewDoc.name}
-                          className="w-full h-full rounded-xl bg-white border-0"
+              {(() => {
+                const docSrc = previewBlobUrl || (previewDoc.dataUrl && previewDoc.dataUrl.startsWith('data:') ? previewDoc.dataUrl : getApiUrl(previewDoc.url || `/api/documents/${previewDoc.id}`));
+                
+                if (isImageDoc(previewDoc)) {
+                  return (
+                    <div className="w-full h-full flex items-center justify-center overflow-auto p-4">
+                      {docSrc ? (
+                        <img
+                          src={docSrc}
+                          alt={previewDoc.name}
+                          style={{
+                            transform: `scale(${zoomLevel}) rotate(${rotation}deg)`,
+                            transition: 'transform 0.2s ease-out'
+                          }}
+                          className="max-h-[64vh] max-w-full object-contain rounded-xl shadow-2xl transition-all"
+                          referrerPolicy="no-referrer"
                         />
-                      </object>
-                      
-                      {/* PDF Quick Open Action Banner in case sandboxed iframe blocks PDF rendering */}
-                      <div className="mt-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenInNewWindow(previewDoc)}
-                          className="text-xs font-bold text-sky-400 hover:text-sky-300 inline-flex items-center gap-1.5 underline underline-offset-4"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          If PDF is not displaying inside browser frame, click here to open in full screen window
-                        </button>
-                      </div>
+                      ) : (
+                        <div className="text-white text-center">
+                          <AlertCircle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
+                          <p className="text-xs font-bold">Image data is loading...</p>
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="text-white text-center">
-                      <AlertCircle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
-                      <p className="text-xs font-bold">PDF data not available</p>
+                  );
+                }
+
+                if (isPdfDoc(previewDoc)) {
+                  return (
+                    <div className="w-full h-full flex flex-col items-center justify-center">
+                      {docSrc ? (
+                        <div className="w-full h-full flex flex-col">
+                          <object
+                            data={docSrc}
+                            type="application/pdf"
+                            className="w-full h-[62vh] rounded-xl bg-white shadow-lg border border-slate-700"
+                          >
+                            <iframe
+                              src={docSrc}
+                              title={previewDoc.name}
+                              className="w-full h-full rounded-xl bg-white border-0"
+                            />
+                          </object>
+                          
+                          {/* PDF Quick Open Action Banner */}
+                          <div className="mt-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenInNewWindow(previewDoc)}
+                              className="text-xs font-bold text-sky-400 hover:text-sky-300 inline-flex items-center gap-1.5 underline underline-offset-4"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              If PDF is not displaying inside browser frame, click here to open in full screen window
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-white text-center">
+                          <AlertCircle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
+                          <p className="text-xs font-bold">PDF data not available</p>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ) : 
-              
-              /* TEXT / CSV VIEWER */
-              isTextDoc(previewDoc) && textContent ? (
-                <div className="w-full h-full bg-slate-950 p-4 rounded-xl overflow-auto border border-slate-800 text-left font-mono text-xs text-slate-200 whitespace-pre-wrap max-h-[60vh]">
-                  {textContent}
-                </div>
-              ) : 
-              
-              /* OFFICE / WORD / EXCEL / ZIP INSPECTOR */
-              (
-                <div className="bg-white p-8 rounded-3xl text-center max-w-md border border-slate-200 shadow-2xl">
-                  <div className="w-16 h-16 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 mx-auto mb-4 shadow-sm">
-                    {getFileIcon(previewDoc.name, previewDoc.type)}
+                  );
+                }
+
+                if (isTextDoc(previewDoc) && textContent) {
+                  return (
+                    <div className="w-full h-full bg-slate-950 p-4 rounded-xl overflow-auto border border-slate-800 text-left font-mono text-xs text-slate-200 whitespace-pre-wrap max-h-[60vh]">
+                      {textContent}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="bg-white p-8 rounded-3xl text-center max-w-md border border-slate-200 shadow-2xl">
+                    <div className="w-16 h-16 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 mx-auto mb-4 shadow-sm">
+                      {getFileIcon(previewDoc.name, previewDoc.type)}
+                    </div>
+                    <h5 className="font-extrabold text-slate-800 text-sm mb-1">{previewDoc.name}</h5>
+                    <div className="flex justify-center items-center gap-2 mb-3">
+                      <span className="px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-800 text-[10px] font-black uppercase border border-teal-100">
+                        {previewDoc.category}
+                      </span>
+                      <span className="text-xs text-slate-400 font-bold">{formatFileSize(previewDoc.size)}</span>
+                    </div>
+                    <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+                      This file is stored in student record. Click below to download and view the original file with your local application.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadDocument(previewDoc)}
+                        className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-black text-xs inline-flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download {previewDoc.name.split('.').pop()?.toUpperCase()} File
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenInNewWindow(previewDoc)}
+                        className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Open Link
+                      </button>
+                    </div>
                   </div>
-                  <h5 className="font-extrabold text-slate-800 text-sm mb-1">{previewDoc.name}</h5>
-                  <div className="flex justify-center items-center gap-2 mb-3">
-                    <span className="px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-800 text-[10px] font-black uppercase border border-teal-100">
-                      {previewDoc.category}
-                    </span>
-                    <span className="text-xs text-slate-400 font-bold">{formatFileSize(previewDoc.size)}</span>
-                  </div>
-                  <p className="text-xs text-slate-500 mb-5 leading-relaxed">
-                    This file is stored in student record. Click below to download and view the original file with your local application.
-                  </p>
-                  <div className="flex flex-col sm:flex-row gap-2 justify-center">
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadDocument(previewDoc)}
-                      className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-black text-xs inline-flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download {previewDoc.name.split('.').pop()?.toUpperCase()} File
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenInNewWindow(previewDoc)}
-                      className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      Open Link
-                    </button>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           </div>
         </div>
