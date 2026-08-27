@@ -1637,7 +1637,7 @@ export default function AdminLeads({
               title="View prerequisites and instructions for Direct Calling on PC and Mobile"
             >
               <PhoneCall className="w-3.5 h-3.5 text-sky-600" />
-              <span>📞 PC & Mobile Call Setup</span>
+              <span>PC & Mobile Call Setup</span>
             </button>
 
             {/* Add Lead Primary Action Button */}
