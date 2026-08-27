@@ -220,6 +220,23 @@ const SEED_LEADS = [
     disposition: "Follow up",
     subDisposition: "Interested",
     followUpDate: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0]
+  },
+  {
+    id: "lead-4",
+    name: "John Smith",
+    email: "john.smith91@gmail.com",
+    phone: "(225) 555-5506",
+    academicLevel: "Undergraduate",
+    streamOfInterest: "Computer Science & IT",
+    degreeOfInterest: "BS Computer Science",
+    score: "85%",
+    budget: "$25,000/year",
+    locationPreference: "USA / Canada",
+    source: "Website",
+    timestamp: new Date(Date.now() - 1 * 3600000).toISOString(),
+    status: "New",
+    notes: "Direct applicant enquired for Fall undergraduate admission.",
+    priority: 3
   }
 ];
 

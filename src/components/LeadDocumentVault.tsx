@@ -3,12 +3,13 @@ import {
   FileText, Image as ImageIcon, FileSpreadsheet, Archive, File, 
   Upload, Download, Trash2, Eye, X, Check, Plus, AlertCircle, 
   Paperclip, ExternalLink, ShieldCheck, FolderOpen, ZoomIn, ZoomOut,
-  RotateCw, RefreshCw, Maximize2
+  RotateCw, RefreshCw, Maximize2, PhoneCall
 } from 'lucide-react';
 import { Lead, LeadDocument } from '../types';
 import { saveDocToLocalDB, getDocFromLocalDB, deleteDocFromLocalDB } from '../utils/documentStorage';
 import { maskEmail, maskPhone } from '../utils/masking';
 import { getApiUrl } from '../utils/apiUrl';
+import { WhatsAppOfficialIcon } from './AdminLeads';
 
 interface LeadDocumentVaultProps {
   lead: Lead;
@@ -843,9 +844,34 @@ export default function LeadDocumentVault({
                 <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
                   Student Document Vault: {lead.name}
                 </h3>
-                <p className="text-[11px] text-slate-400 font-semibold">
-                  {userRole === 'counselor' ? maskPhone(lead.phone) : lead.phone} • {userRole === 'counselor' ? maskEmail(lead.email) : lead.email} {lead.counsellor ? `• Assigned: ${lead.counsellor}` : ''}
-                </p>
+                <div className="flex items-center gap-2 text-[11px] text-slate-400 font-semibold flex-wrap">
+                  <a
+                    href={`tel:${lead.phone ? lead.phone.replace(/[^\d+]/g, '') : ''}`}
+                    className="inline-flex items-center gap-1.5 text-emerald-900 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md font-bold transition-colors cursor-pointer"
+                    title={`Click to call ${lead.phone}`}
+                  >
+                    <PhoneCall className="w-3 h-3 text-emerald-600" />
+                    <span>{userRole === 'counselor' ? maskPhone(lead.phone) : lead.phone}</span>
+                    <span className="text-[8px] uppercase tracking-wider bg-emerald-600 text-white font-black px-1.5 py-0.2 rounded-xs shadow-2xs">Call</span>
+                  </a>
+                  <a
+                    href={`https://wa.me/${(lead.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${lead.name}! This is Enrol Overseas regarding your documents.`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center p-1 text-[#25D366] hover:text-[#20bd5a] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors cursor-pointer"
+                    title={`WhatsApp chat with ${lead.name}`}
+                  >
+                    <WhatsAppOfficialIcon className="w-3.5 h-3.5" />
+                  </a>
+                  <span>•</span>
+                  <span>{userRole === 'counselor' ? maskEmail(lead.email) : lead.email}</span>
+                  {lead.counsellor && (
+                    <>
+                      <span>•</span>
+                      <span>Assigned: {lead.counsellor}</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
             {onCloseModal && (
