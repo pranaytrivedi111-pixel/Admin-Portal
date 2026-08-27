@@ -1555,18 +1555,6 @@ export default function AdminLeads({
               <PlusCircle className="w-4 h-4" />
               <span>+ Add Lead</span>
             </button>
-
-            {/* Bulk Lead Upload Button (Excel / CSV / XLS) */}
-            <button
-              type="button"
-              onClick={() => setIsBulkUploadModalOpen(true)}
-              className="flex items-center gap-2 text-xs font-black px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white shadow-md shadow-emerald-700/20 transition-all cursor-pointer active:scale-95"
-              id="admin-bulk-upload-top-btn"
-              title="Upload leads in bulk using Excel (.xlsx, .xls) or CSV files"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-              <span>📥 Bulk Upload (Excel/CSV)</span>
-            </button>
           </div>
         </div>
 

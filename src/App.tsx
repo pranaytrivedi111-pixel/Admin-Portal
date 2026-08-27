@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Lock, AlertCircle, LogOut, CheckCircle, Database, GraduationCap
+  Lock, AlertCircle, LogOut, CheckCircle, GraduationCap
 } from 'lucide-react';
 import { Lead } from './types';
 import AdminLeads from './components/AdminLeads';
@@ -9,9 +9,9 @@ import AdminLeads from './components/AdminLeads';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export default function App() {
-  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(true);
-  const [userRole, setUserRole] = useState<'admin' | 'counselor' | null>('admin');
-  const [userName, setUserName] = useState<string>('enroloverseas');
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [userRole, setUserRole] = useState<'admin' | 'counselor' | null>(null);
+  const [userName, setUserName] = useState<string>('');
   const [adminUsername, setAdminUsername] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -559,16 +559,6 @@ export default function App() {
                       <span>{loginError}</span>
                     </div>
                   )}
-                  
-                  <div className="p-3.5 bg-slate-900 border border-slate-800 rounded-2xl text-[11px] text-slate-300 font-medium leading-relaxed" id="api-endpoint-badge">
-                    <div className="flex items-center gap-1.5 mb-1 text-slate-200">
-                      <Database className="w-3.5 h-3.5 text-sky-400" />
-                      <span className="font-bold text-slate-100">Database Connection Target:</span>
-                    </div>
-                    <code className="text-[10px] font-mono text-sky-300 break-all bg-slate-950 px-2 py-1 rounded block mt-1">
-                      {API_BASE_URL || 'Local / Current Site Domain (Relative Routing)'}
-                    </code>
-                  </div>
 
                   <div>
                     <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1.5">Employee Username</label>
