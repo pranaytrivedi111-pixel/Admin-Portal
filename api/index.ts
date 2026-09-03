@@ -37,8 +37,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'x-user-role']
 }));
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Helper to filter out placeholder values commonly set in development/Vercel dashboards
 const cleanEnvVar = (val: any): string => {
@@ -482,14 +482,37 @@ function unpackLeadWithMetadata(dbLead: any) {
 app.get(['/api/leads', '/leads'], async (req, res) => {
   if (supabase) {
     try {
-      // Fetch from Supabase leads table
-      const { data, error } = await supabase
-        .from('leads')
-        .select('*')
-        .order('timestamp', { ascending: false });
+      // Fetch from Supabase leads table using pagination to support 10,000+ leads (bypassing PostgREST default 1000 row cap)
+      let allRows: any[] = [];
+      let from = 0;
+      const step = 1000;
+      let hasMore = true;
 
-      if (!error && data) {
-        const mappedLeads = data.map(unpackLeadWithMetadata);
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('leads')
+          .select('*')
+          .order('timestamp', { ascending: false })
+          .range(from, from + step - 1);
+
+        if (error || !data || data.length === 0) {
+          if (error && allRows.length === 0) {
+            console.warn("Supabase fetch warning:", error?.message);
+          }
+          break;
+        }
+
+        allRows = allRows.concat(data);
+
+        if (data.length < step || allRows.length >= 50000) {
+          hasMore = false;
+        } else {
+          from += step;
+        }
+      }
+
+      if (allRows.length > 0) {
+        const mappedLeads = allRows.map(unpackLeadWithMetadata);
         localLeads = mappedLeads; // Keep local memory in sync
 
         // Also fetch settings if table exists, or fallback
@@ -508,7 +531,7 @@ app.get(['/api/leads', '/leads'], async (req, res) => {
         }
         return res.json({ leads: mappedLeads, googleSheetUrl });
       } else {
-        console.warn("Supabase fetch failed or table doesn't exist, falling back to local memory:", error?.message);
+        console.warn("Supabase fetch returned 0 rows, checking local memory fallback");
       }
     } catch (err) {
       console.error("Failed to fetch from Supabase:", err);
@@ -743,11 +766,11 @@ app.post(['/api/leads/bulk', '/leads/bulk'], async (req: express.Request, res: e
     try {
       const dbLeads = processedLeads.map(l => mapLeadToSupabase(l));
       
-      // Batch insert in chunks of 50 for stability
-      const chunkSize = 50;
+      // Batch upsert in chunks of 500 for high performance and stability (easily handles 10,000+ leads)
+      const chunkSize = 500;
       for (let c = 0; c < dbLeads.length; c += chunkSize) {
         const chunk = dbLeads.slice(c, c + chunkSize);
-        let { error } = await supabase.from('leads').insert(chunk);
+        let { error } = await supabase.from('leads').upsert(chunk, { onConflict: 'id' });
 
         if (error && (error.code === 'PGRST204' || error.code === '42703' || error.message?.toLowerCase().includes('column'))) {
           // Retry with resilient metadata
@@ -769,7 +792,7 @@ app.post(['/api/leads/bulk', '/leads/bulk'], async (req: express.Request, res: e
             return safeLead;
           });
 
-          await supabase.from('leads').insert(safeChunk);
+          await supabase.from('leads').upsert(safeChunk, { onConflict: 'id' });
         }
       }
     } catch (dbErr) {
@@ -777,8 +800,13 @@ app.post(['/api/leads/bulk', '/leads/bulk'], async (req: express.Request, res: e
     }
   }
 
-  // Update in-memory local leads
-  localLeads = [...processedLeads, ...localLeads];
+  // Update in-memory local leads with deduplication by ID
+  const leadMap = new Map<string, any>();
+  for (const l of processedLeads) leadMap.set(l.id, l);
+  for (const l of localLeads) {
+    if (!leadMap.has(l.id)) leadMap.set(l.id, l);
+  }
+  localLeads = Array.from(leadMap.values());
 
   return res.status(201).json({
     success: true,

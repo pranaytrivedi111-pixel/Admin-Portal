@@ -44,8 +44,10 @@ export default function App() {
 
   const safeSaveOfflineLeads = (leadsToSave: Lead[]) => {
     try {
-      // Create clean copy without giant dataUrls for localStorage so 5MB limit is never exceeded
-      const sanitized = leadsToSave.map(l => ({
+      // Cap localStorage cache to newest 2,000 leads so browser 5MB quota is never exceeded,
+      // even when the CRM contains 10,000+ leads in database and active memory
+      const leadsToCache = leadsToSave.length > 2000 ? leadsToSave.slice(0, 2000) : leadsToSave;
+      const sanitized = leadsToCache.map(l => ({
         ...l,
         documents: (l.documents || []).map(d => ({
           ...d,
@@ -285,17 +287,42 @@ export default function App() {
     return finalLead;
   };
 
-  const handleBulkAddLeads = async (newLeads: Partial<Lead>[]): Promise<{ success: boolean; count: number }> => {
+  const handleBulkAddLeads = async (
+    newLeads: Partial<Lead>[],
+    onProgress?: (progressPercent: number, currentBatch: number, totalBatches: number, processedCount: number) => void
+  ): Promise<{ success: boolean; count: number }> => {
     if (!newLeads || newLeads.length === 0) return { success: false, count: 0 };
     
+    // Process in batches of 1,000 to seamlessly handle 10,000+ leads without network, payload, or gateway timeouts
+    const BATCH_SIZE = 1000;
+    const totalBatches = Math.ceil(newLeads.length / BATCH_SIZE);
+    let totalImported = 0;
+    let anyBatchSucceeded = false;
+
     try {
-      const res = await fetch(getApiUrl('/api/leads/bulk'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leads: newLeads })
-      });
-      if (res.ok) {
-        const data = await res.json();
+      for (let b = 0; b < totalBatches; b++) {
+        const batch = newLeads.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+        const res = await fetch(getApiUrl('/api/leads/bulk'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ leads: batch })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          totalImported += (data.count || batch.length);
+          anyBatchSucceeded = true;
+        } else {
+          console.warn(`Bulk upload batch ${b + 1}/${totalBatches} returned status ${res.status}`);
+        }
+
+        if (onProgress) {
+          const percent = Math.min(98, Math.round(((b + 1) / totalBatches) * 100));
+          onProgress(percent, b + 1, totalBatches, totalImported);
+        }
+      }
+
+      if (anyBatchSucceeded && totalImported > 0) {
         const freshRes = await fetch(getApiUrl('/api/leads'));
         if (freshRes.ok) {
           const freshData = await freshRes.json();
@@ -304,8 +331,8 @@ export default function App() {
             safeSaveOfflineLeads(freshData.leads);
           }
         }
-        showToast(`Successfully imported ${data.count || newLeads.length} student leads in bulk!`);
-        return { success: true, count: data.count || newLeads.length };
+        showToast(`Successfully imported ${totalImported.toLocaleString()} student leads in bulk!`);
+        return { success: true, count: totalImported };
       }
     } catch (err) {
       console.error('Failed to import leads in bulk via API:', err);
@@ -338,7 +365,7 @@ export default function App() {
 
     setLeads(prev => [...fallbackLeads, ...prev]);
     safeSaveOfflineLeads([...fallbackLeads, ...leads]);
-    showToast(`Imported ${fallbackLeads.length} student leads locally!`);
+    showToast(`Imported ${fallbackLeads.length.toLocaleString()} student leads locally!`);
     return { success: true, count: fallbackLeads.length };
   };
 

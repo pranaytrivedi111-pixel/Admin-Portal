@@ -202,7 +202,10 @@ export const getSourceBadgeStyle = (sourceName?: string) => {
 interface AdminLeadsProps {
   leads: Lead[];
   onAddLead?: (lead: Partial<Lead>) => Promise<Lead | null>;
-  onBulkAddLeads?: (leads: Partial<Lead>[]) => Promise<{ success: boolean; count: number }>;
+  onBulkAddLeads?: (
+    leads: Partial<Lead>[],
+    onProgress?: (progressPercent: number, currentBatch: number, totalBatches: number, processedCount: number) => void
+  ) => Promise<{ success: boolean; count: number }>;
   onUpdateLeadStatus: (leadId: string, newStatus: Lead['status']) => void;
   onUpdateLeadDetails?: (leadId: string, updates: Partial<Lead>) => void;
   onClearLeads: () => void;
@@ -2391,10 +2394,12 @@ export default function AdminLeads({
                     className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 font-bold outline-none cursor-pointer"
                     id="items-per-page-select"
                   >
-                    <option value={5}>5</option>
                     <option value={10}>10</option>
                     <option value={20}>20</option>
                     <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={250}>250</option>
+                    <option value={500}>500</option>
                   </select>
                 </div>
 
